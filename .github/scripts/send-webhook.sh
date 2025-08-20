@@ -71,9 +71,9 @@ create_teams_payload() {
     local url="$5"
     
     # Format summary for Teams - clean up formatting and ensure proper escaping
-    local formatted_summary=$(echo "$summary" | sed 's/• /\n• /g' | sed 's/📁/\n\n📁/g' | sed 's/^\n\n//' | tr -d '\r')
-    # Ensure the summary doesn't have any problematic characters
-    formatted_summary=$(echo "$formatted_summary" | sed 's/"/\\"/g')
+    # Remove any control characters and normalize line breaks
+    local formatted_summary=$(echo "$summary" | tr -d '\r' | sed 's/\t/ /g')
+    # Escape for JSON properly using jq
     local escaped_summary=$(echo "$formatted_summary" | jq -Rs . 2>/dev/null || echo "\"Error formatting summary\"")
     
     # Detect Teams webhook version
@@ -369,9 +369,12 @@ main() {
         echo "🔄 Trying with simplified message format..."
         
         # Create a simplified fallback payload for Teams
+        # Clean the summary text first
+        local clean_summary=$(echo "$SUMMARY" | tr -d '\r' | sed 's/\t/ /g' | jq -Rs . 2>/dev/null || echo "\"Summary unavailable\"")
+        
         SIMPLE_PAYLOAD=$(jq -n \
             --arg title "$TITLE" \
-            --arg summary "$SUMMARY" \
+            --argjson summary "$clean_summary" \
             --arg commits "$COMMIT_COUNT" \
             --arg repos "$REPO_COUNT" \
             '{

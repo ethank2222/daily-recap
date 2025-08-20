@@ -52,26 +52,37 @@ validate_api_key() {
 get_time_window() {
     TODAY=$(date +%u)  # weekday number (1=Mon ... 7=Sun)
     
+    # Get current Pacific time for reference
+    PACIFIC_NOW=$(TZ="America/Los_Angeles" date +"%Y-%m-%d %H:%M:%S")
+    echo "📅 Current Pacific Time: $PACIFIC_NOW"
+    
+    # Calculate start and end dates in Pacific time
     # Handle Monday (include weekend commits) - Extended time window for better coverage
     if [ "$TODAY" -eq 1 ]; then
-        START=$(date -d "7 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
+        # Monday: Get commits from Friday 00:00 PT to Sunday 23:59:59 PT
+        START_PACIFIC=$(TZ="America/Los_Angeles" date -d "last Friday 00:00:00" +"%Y-%m-%d %H:%M:%S")
+        END_PACIFIC=$(TZ="America/Los_Angeles" date -d "yesterday 23:59:59" +"%Y-%m-%d %H:%M:%S")
     else
-        START=$(date -d "3 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
+        # Other days: Get commits from yesterday 00:00 PT to yesterday 23:59:59 PT  
+        START_PACIFIC=$(TZ="America/Los_Angeles" date -d "yesterday 00:00:00" +"%Y-%m-%d %H:%M:%S")
+        END_PACIFIC=$(TZ="America/Los_Angeles" date -d "yesterday 23:59:59" +"%Y-%m-%d %H:%M:%S")
     fi
     
-    END=$(date -d "tomorrow 00:00" +"%Y-%m-%d %H:%M:%S")
+    # Convert Pacific times to UTC for GitHub API (GitHub expects UTC in ISO format)
+    START_ISO=$(TZ="America/Los_Angeles" date -d "$START_PACIFIC" -u +"%Y-%m-%dT%H:%M:%SZ")
+    END_ISO=$(TZ="America/Los_Angeles" date -d "$END_PACIFIC" -u +"%Y-%m-%dT%H:%M:%SZ")
     
-    # Convert to ISO format for GitHub API
-    START_ISO=$(TZ="America/Los_Angeles" date -d "$START" +"%Y-%m-%dT%H:%M:%SZ")
-    END_ISO=$(TZ="America/Los_Angeles" date -d "$END" +"%Y-%m-%dT%H:%M:%SZ")
-    
-    echo "📅 Collecting commits between $START and $END (Pacific Time)"
-    echo "🔍 Debug: Time window for GitHub API:"
-    echo "  Start (UTC): $START_ISO"
-    echo "  End (UTC): $END_ISO"
+    echo "📅 Collecting commits for Pacific Time window:"
+    echo "  Start: $START_PACIFIC PT"
+    echo "  End: $END_PACIFIC PT"
+    echo "🔍 GitHub API time window (UTC):"
+    echo "  Start: $START_ISO"
+    echo "  End: $END_ISO"
     
     # Export for use in other scripts
-    export START START_ISO END END_ISO TODAY
+    export START="$START_PACIFIC"
+    export END="$END_PACIFIC" 
+    export START_ISO END_ISO TODAY
 }
 
 # Sanitize text to remove sensitive data
