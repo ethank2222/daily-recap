@@ -474,22 +474,24 @@ jobs:
             fi
           fi
 
-                     # Enhanced markdown payload for better formatting
+                     # Create formatted text payload (no JSON wrapper)
+           CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
+           PAYLOAD_TEXT="${TITLE}\n\n${SUMMARY}\n\n---\n📊 Summary Stats:\n• Repositories checked: ${REPO_COUNT}\n• Commits found: ${COMMIT_COUNT}\n• Generated: ${CURRENT_TIME}"
+           
+           # Create JSON payload with the formatted text
            PAYLOAD=$(jq -n \
-             --arg title "$TITLE" \
-             --arg summary "$SUMMARY" \
-             --arg repo_count "$REPO_COUNT" \
-             --arg commit_count "$COMMIT_COUNT" \
-             '{
-               "text": ($title + "\n\n" + $summary + "\n\n---\n📊 Summary Stats:\n• Repositories checked: " + $repo_count + "\n• Commits found: " + $commit_count + "\n• Generated: " + (now | strftime("%B %d, %Y at %I:%M %p UTC")))
-             }')
+             --arg text "$PAYLOAD_TEXT" \
+             '{"text": $text}')
 
           # Send with retries and exponential backoff
           MAX_RETRIES=3
           RETRY_DELAY=2
 
-          # Log webhook attempt
-          echo "📤 Attempting to send webhook to Teams..."
+                     # Log webhook attempt
+           echo "📤 Attempting to send webhook..."
+           echo "📋 Payload preview (first 200 chars):"
+           echo "$PAYLOAD_TEXT" | head -c 200
+           echo "..."
 
           for i in $(seq 1 $MAX_RETRIES); do
             # Security: Send request without exposing URL in logs
