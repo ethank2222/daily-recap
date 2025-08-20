@@ -203,7 +203,7 @@ ${REPO_COMMITS}"
 
 # Main execution
 main() {
-    # Get time window
+    # Get time window and set variables
     get_time_window
     
     # Fetch repositories

@@ -50,7 +50,7 @@ validate_api_key() {
 
 # Calculate time window for commits
 get_time_window() {
-    local TODAY=$(date +%u)  # weekday number (1=Mon ... 7=Sun)
+    TODAY=$(date +%u)  # weekday number (1=Mon ... 7=Sun)
     
     # Handle Monday (include weekend commits) - Extended time window for better coverage
     if [ "$TODAY" -eq 1 ]; then
