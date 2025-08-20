@@ -314,10 +314,10 @@ jobs:
                         model: "gpt-4o-mini",
                         max_tokens: 300,
                         temperature: 0.3,
-                                        messages: [{
-                  role: "user",
-                  content: ("Analyze these " + $count + " git commits and create a detailed, actionable daily summary that provides specific insights into what was accomplished.\n\nRepository Activity:\n" + $commits + "\n\nANALYSIS REQUIREMENTS:\n- Look beyond file names and commit messages to understand the actual business value\n- Identify specific features, improvements, or fixes implemented\n- Focus on user-facing functionality, business logic, and system enhancements\n- Group related changes by functionality or feature area\n- Provide context about what problem was solved or what capability was added\n- Include specific details about the scope and impact of changes\n\nEXAMPLES OF GOOD DESCRIPTIONS:\n• '"'"'Implemented user authentication with OAuth2 support for Google and GitHub login'"'"' (not '"'"'Updated auth.js'"'"')\n• '"'"'Added database connection pooling to improve API response times by 40%'"'"' (not '"'"'Modified db config'"'"')\n• '"'"'Built real-time notification system for instant updates on user actions'"'"' (not '"'"'Added socket.io'"'"')\n• '"'"'Implemented API rate limiting (100 requests/minute) to prevent abuse'"'"' (not '"'"'Updated middleware'"'"')\n• '"'"'Enhanced data validation with custom rules for email, phone, and address fields'"'"' (not '"'"'Fixed validation.js'"'"')\n• '"'"'Fixed critical bug in payment processing that was causing failed transactions'"'"' (not '"'"'Fixed payment bug'"'"')\n• '"'"'Added comprehensive error logging and monitoring for production debugging'"'"' (not '"'"'Added logging'"'"')\n\nREQUIRED MARKDOWN FORMAT:\n📁 Repo Name (X commits):\n• Specific feature or improvement with context\n• Another specific accomplishment with details\n\n📁 Another Repo (Y commits):\n• Detailed description of what was implemented\n\nIMPORTANT:\n- Use bullet points (•) for each item\n- Each bullet point should be on its own line with proper line breaks\n- Be specific about what was accomplished, not just what files changed\n- Include context about the business value or technical improvement\n- Do not combine multiple items into a single paragraph\n\nGenerate the summary:")
-                }]
+                        messages: [{
+                          role: "user",
+                          content: ("Analyze these " + $count + " git commits and create a detailed, actionable daily summary that provides specific insights into what was accomplished.\n\nRepository Activity:\n" + $commits + "\n\nANALYSIS REQUIREMENTS:\n- Look beyond file names and commit messages to understand the actual business value\n- Identify specific features, improvements, or fixes implemented\n- Focus on user-facing functionality, business logic, and system enhancements\n- Group related changes by functionality or feature area\n- Provide context about what problem was solved or what capability was added\n- Include specific details about the scope and impact of changes\n\nEXAMPLES OF GOOD DESCRIPTIONS:\n• '"'"'Implemented user authentication with OAuth2 support for Google and GitHub login'"'"' (not '"'"'Updated auth.js'"'"')\n• '"'"'Added database connection pooling to improve API response times by 40%'"'"' (not '"'"'Modified db config'"'"')\n• '"'"'Built real-time notification system for instant updates on user actions'"'"' (not '"'"'Added socket.io'"'"')\n• '"'"'Implemented API rate limiting (100 requests/minute) to prevent abuse'"'"' (not '"'"'Updated middleware'"'"')\n• '"'"'Enhanced data validation with custom rules for email, phone, and address fields'"'"' (not '"'"'Fixed validation.js'"'"')\n• '"'"'Fixed critical bug in payment processing that was causing failed transactions'"'"' (not '"'"'Fixed payment bug'"'"')\n• '"'"'Added comprehensive error logging and monitoring for production debugging'"'"' (not '"'"'Added logging'"'"')\n\nREQUIRED MARKDOWN FORMAT:\n📁 Repo Name (X commits):\n• Specific feature or improvement with context\n• Another specific accomplishment with details\n\n📁 Another Repo (Y commits):\n• Detailed description of what was implemented\n\nIMPORTANT:\n- Use bullet points (•) for each item\n- Each bullet point should be on its own line with proper line breaks\n- Be specific about what was accomplished, not just what files changed\n- Include context about the business value or technical improvement\n- Do not combine multiple items into a single paragraph\n\nGenerate the summary:")
+                        }]
                       }')
                   fi
 
@@ -367,23 +367,23 @@ jobs:
                       # Ensure bullet points are properly formatted
                       SUMMARY=$(echo "$SUMMARY" | sed 's/^[[:space:]]*•[[:space:]]*/• /g')
                       
-                                             # Add line breaks between sections if missing
-                       SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n📁/g')
-                       
-                       # Ensure each bullet point is on its own line
-                       SUMMARY=$(echo "$SUMMARY" | sed 's/• /\n• /g')
-                       
-                       # Remove any extra blank lines but preserve single line breaks
-                       SUMMARY=$(echo "$SUMMARY" | sed '/^[[:space:]]*$/d' | sed 's/\n\n\n/\n\n/g')
-                       
-                                               # Ensure proper spacing after repository headers
-                        SUMMARY=$(echo "$SUMMARY" | sed 's/📁 \(.*\) (\([0-9]* commits\)):/📁 \1 (\2):\n/g')
-                        
-                        # Add blank lines between repositories for better readability
-                        SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n\n📁/g')
-                        
-                        # Clean up any excessive blank lines at the beginning
-                        SUMMARY=$(echo "$SUMMARY" | sed 's/^\n\n//')
+                      # Add line breaks between sections if missing
+                      SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n📁/g')
+                      
+                      # Ensure each bullet point is on its own line
+                      SUMMARY=$(echo "$SUMMARY" | sed 's/• /\n• /g')
+                      
+                      # Remove any extra blank lines but preserve single line breaks
+                      SUMMARY=$(echo "$SUMMARY" | sed '/^[[:space:]]*$/d' | sed 's/\n\n\n/\n\n/g')
+                      
+                      # Ensure proper spacing after repository headers
+                      SUMMARY=$(echo "$SUMMARY" | sed 's/📁 \(.*\) (\([0-9]* commits\)):/📁 \1 (\2):\n/g')
+                      
+                      # Add blank lines between repositories for better readability
+                      SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n\n📁/g')
+                      
+                      # Clean up any excessive blank lines at the beginning
+                      SUMMARY=$(echo "$SUMMARY" | sed 's/^\n\n//')
                       
                       echo "✅ Summary formatting complete"
                       break
@@ -428,21 +428,21 @@ jobs:
                       fi
                     fi
                     
-                                         # Apply the same post-processing to fallback summary
-                     echo "🔧 Post-processing fallback summary for proper markdown formatting..."
-                     SUMMARY=$(echo "$SUMMARY" | sed 's/^[[:space:]]*-[[:space:]]/• /g')
-                     SUMMARY=$(echo "$SUMMARY" | sed 's/^[[:space:]]*•[[:space:]]*/• /g')
-                     SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n📁/g')
-                     SUMMARY=$(echo "$SUMMARY" | sed 's/• /\n• /g')
-                     SUMMARY=$(echo "$SUMMARY" | sed '/^[[:space:]]*$/d' | sed 's/\n\n\n/\n\n/g')
-                                           SUMMARY=$(echo "$SUMMARY" | sed 's/📁 \(.*\) (\([0-9]* commits\)):/📁 \1 (\2):\n/g')
-                      
-                      # Add blank lines between repositories for better readability
-                      SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n\n📁/g')
-                      
-                      # Clean up any excessive blank lines at the beginning
-                      SUMMARY=$(echo "$SUMMARY" | sed 's/^\n\n//')
-                      echo "✅ Fallback summary formatting complete"
+                    # Apply the same post-processing to fallback summary
+                    echo "🔧 Post-processing fallback summary for proper markdown formatting..."
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/^[[:space:]]*-[[:space:]]/• /g')
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/^[[:space:]]*•[[:space:]]*/• /g')
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n📁/g')
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/• /\n• /g')
+                    SUMMARY=$(echo "$SUMMARY" | sed '/^[[:space:]]*$/d' | sed 's/\n\n\n/\n\n/g')
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/📁 \(.*\) (\([0-9]* commits\)):/📁 \1 (\2):\n/g')
+                    
+                    # Add blank lines between repositories for better readability
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n\n📁/g')
+                    
+                    # Clean up any excessive blank lines at the beginning
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/^\n\n//')
+                    echo "✅ Fallback summary formatting complete"
                   fi
 
                   # Security: Final sanitization before saving
@@ -523,8 +523,8 @@ jobs:
                   CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
                   WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-}"
 
-                                         # Escape the summary for JSON and preserve line breaks for Teams
-                       ESCAPED_SUMMARY=$(echo "$SUMMARY" | sed 's/\n/\\n/g' | jq -Rs .)
+                  # Escape the summary for JSON and preserve line breaks for Teams
+                  ESCAPED_SUMMARY=$(echo "$SUMMARY" | sed 's/\n/\\n/g' | jq -Rs .)
 
                   # Detect webhook type based on URL
                   if echo "$WEBHOOK_URL" | grep -q "webhook.office.com/webhookb2"; then
