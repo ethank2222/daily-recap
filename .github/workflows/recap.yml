@@ -252,10 +252,26 @@ jobs:
                         
                         # Add repository header and commits (or no commits message)
                         if [ -n "$REPO_COMMITS" ] && [ "$REPO_COMMIT_COUNT" -gt 0 ]; then
-                          ALL_COMMITS=$(printf "%s\n\n📁 **%s** (%s commits):\n%s" "$ALL_COMMITS" "$repo" "$REPO_COMMIT_COUNT" "$REPO_COMMITS")
+                          if [ -n "$ALL_COMMITS" ]; then
+                            ALL_COMMITS="$ALL_COMMITS
+
+📁 **$repo** ($REPO_COMMIT_COUNT commits):
+$REPO_COMMITS"
+                          else
+                            ALL_COMMITS="📁 **$repo** ($REPO_COMMIT_COUNT commits):
+$REPO_COMMITS"
+                          fi
                           TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
                         else
-                          ALL_COMMITS=$(printf "%s\n\n📁 **%s** (0 commits):\n• No commits in this period" "$ALL_COMMITS" "$repo")
+                          if [ -n "$ALL_COMMITS" ]; then
+                            ALL_COMMITS="$ALL_COMMITS
+
+📁 **$repo** (0 commits):
+• No commits in this period"
+                          else
+                            ALL_COMMITS="📁 **$repo** (0 commits):
+• No commits in this period"
+                          fi
                         fi
                         
                         # Always increment repo count since we're checking every repo
