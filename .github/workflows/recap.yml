@@ -128,17 +128,33 @@ jobs:
               if [ -n "$repo" ]; then
                 echo "🔍 Checking repository: $repo"
                 
-                # Get commits for this repository in the time window
-                COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100" || echo '[]')
+                                        # Get commits for this repository in the time window
+                        COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                          -H "Accept: application/vnd.github.v3+json" \
+                          "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100" || echo '[]')
+                        
+                        # Get current user's username for filtering
+                        CURRENT_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                          -H "Accept: application/vnd.github.v3+json" \
+                          "https://api.github.com/user" | jq -r '.login' 2>/dev/null || echo "")
+                        
+                        # Extract commit information, filtering to only current user's commits
+                        if [ -n "$CURRENT_USER" ]; then
+                          REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]) by \(.commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
+                        else
+                          # Fallback if we can't get current user - skip this repo
+                          echo "  ⚠️ Could not determine current user, skipping $repo"
+                          REPO_COMMITS=""
+                        fi
                 
-                # Extract commit information
-                REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r '.[] | "• \(.sha[0:7]) by \(.commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
-                
-                if [ -n "$REPO_COMMITS" ]; then
-                  REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
-                  echo "  📝 Found $REPO_COMMIT_COUNT commits in $repo"
+                                        if [ -n "$REPO_COMMITS" ]; then
+                          # Count only current user's commits
+                          if [ -n "$CURRENT_USER" ]; then
+                            REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user)] | length' 2>/dev/null || echo "0")
+                          else
+                            REPO_COMMIT_COUNT=0
+                          fi
+                          echo "  📝 Found $REPO_COMMIT_COUNT of your commits in $repo"
                   
                   # Add repository header and commits
                   ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** ($REPO_COMMIT_COUNT commits):\n$REPO_COMMITS"
@@ -339,19 +355,14 @@ jobs:
             fi
           fi
 
-          # Security: Payload only contains the summary, no keys or URLs
-          # Modified to include attachments array for Power Automate compatibility
-          PAYLOAD=$(jq -n \
-            --arg text "$TITLE\n\n$SUMMARY" \
-            '{
-              text: $text,
-              attachments: [{
-                contentType: "text/plain",
-                content: {
-                  text: $text
-                }
-              }]
-            }')
+                     # Security: Payload only contains the summary, no keys or URLs
+           # Modified to include body for Teams webhook compatibility
+           PAYLOAD=$(jq -n \
+             --arg text "$TITLE\n\n$SUMMARY" \
+             '{
+               text: $text,
+               body: $text
+             }')
 
           # Send with retries and exponential backoff
           MAX_RETRIES=3
