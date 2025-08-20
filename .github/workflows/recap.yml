@@ -316,7 +316,7 @@ jobs:
                  temperature: 0.3,
                  messages: [{
                    role: "user",
-                   content: ("Create a concise daily summary from these " + $count + " git commits.\n\nRepository Activity:\n" + $commits + "\n\nREQUIREMENTS:\n- List ONLY repository names and commit counts\n- Include ONLY the main functionalities you worked on\n- Keep it brief and technical\n- No explanations or fluff\n- Focus on what was actually built/fixed/improved\n\nFORMAT:\n📁 Repo Name (X commits):\n• Functionality 1\n• Functionality 2\n\n📁 Another Repo (Y commits):\n• Functionality 3\n\nGenerate the summary:")
+                   content: ("Analyze these " + $count + " git commits and create a concise daily summary focusing on the actual functionality implemented.\n\nRepository Activity:\n" + $commits + "\n\nANALYSIS REQUIREMENTS:\n- Look beyond file names and commit messages\n- Identify the core functionality being implemented\n- Focus on user-facing features, business logic, and system improvements\n- Group related changes by functionality\n- Describe what the code actually does, not what files were changed\n\nEXAMPLES OF GOOD DESCRIPTIONS:\n• 'User authentication system' (not 'Updated auth.js')\n• 'Database connection pooling' (not 'Modified db config')\n• 'Real-time notifications' (not 'Added socket.io')\n• 'API rate limiting' (not 'Updated middleware')\n• 'Data validation rules' (not 'Fixed validation.js')\n\nFORMAT:\n📁 Repo Name (X commits):\n• Core functionality implemented\n• System improvement made\n\n📁 Another Repo (Y commits):\n• Feature enhancement\n\nGenerate the summary:")
                  }]
                }')
           fi
@@ -474,14 +474,53 @@ jobs:
             fi
           fi
 
-                     # Create formatted text payload (no JSON wrapper)
+                     # Create MessageCard format for Teams/Power Automate
            CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
-           PAYLOAD_TEXT="${TITLE}\n\n${SUMMARY}\n\n---\n📊 Summary Stats:\n• Repositories checked: ${REPO_COUNT}\n• Commits found: ${COMMIT_COUNT}\n• Generated: ${CURRENT_TIME}"
+           WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-}"
            
-           # Create JSON payload with the formatted text
-           PAYLOAD=$(jq -n \
-             --arg text "$PAYLOAD_TEXT" \
-             '{"text": $text}')
+           # Create MessageCard payload
+           PAYLOAD=$(cat <<EOF
+{
+  "@type": "MessageCard",
+  "@context": "http://schema.org/extensions",
+  "themeColor": "0076D7",
+  "summary": "Daily Commit Summary",
+  "sections": [{
+    "activityTitle": "$TITLE",
+    "activitySubtitle": "$CURRENT_TIME",
+    "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+    "facts": [
+      {
+        "name": "📚 Repositories Checked",
+        "value": "$REPO_COUNT"
+      },
+      {
+        "name": "💻 Commits Found",
+        "value": "$COMMIT_COUNT"
+      },
+      {
+        "name": "📅 Time Period",
+        "value": "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")"
+      },
+      {
+        "name": "🔗 Workflow Run",
+        "value": "[View Details]($WORKFLOW_URL)"
+      }
+    ],
+    "text": "$SUMMARY",
+    "markdown": true
+  }],
+  "potentialAction": [{
+    "@type": "OpenUri",
+    "name": "🔍 View Workflow Run",
+    "targets": [{
+      "os": "default",
+      "uri": "$WORKFLOW_URL"
+    }]
+  }]
+}
+EOF
+)
 
           # Send with retries and exponential backoff
           MAX_RETRIES=3
@@ -489,9 +528,7 @@ jobs:
 
                      # Log webhook attempt
            echo "📤 Attempting to send webhook..."
-           echo "📋 Payload preview (first 200 chars):"
-           echo "$PAYLOAD_TEXT" | head -c 200
-           echo "..."
+           echo "📋 Using MessageCard format for Teams/Power Automate"
 
           for i in $(seq 1 $MAX_RETRIES); do
             # Security: Send request without exposing URL in logs
@@ -549,7 +586,7 @@ jobs:
             # Add production status indicators
             echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
             echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
-                         echo "**Webhook Format:** Simple Text JSON" >> $GITHUB_STEP_SUMMARY
+                         echo "**Webhook Format:** Microsoft Teams MessageCard" >> $GITHUB_STEP_SUMMARY
             echo "$SAFE_SUMMARY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
