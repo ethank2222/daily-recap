@@ -51,18 +51,18 @@ validate_webhook() {
     elif echo "$WEBHOOK_URL" | grep -q "discord.com"; then
         echo "📤 Sending summary to Discord webhook"
         WEBHOOK_TYPE="discord"
-    elif echo "$WEBHOOK_URL" | grep -q "office.com"; then
-        echo "📤 Sending summary to Teams webhook"
+    elif echo "$WEBHOOK_URL" | grep -q "office.com\|logic.azure.com\|prod-.*\.logic\.azure\.com"; then
+        echo "📤 Sending summary to Teams/Power Automate webhook"
         WEBHOOK_TYPE="teams"
     else
-        echo "📤 Sending summary to webhook"
-        WEBHOOK_TYPE="generic"
+        echo "📤 Sending summary to webhook (assuming Teams format)"
+        WEBHOOK_TYPE="teams"
     fi
     
     return 0
 }
 
-# Create Teams payload
+# Create Teams payload that matches the required schema
 create_teams_payload() {
     local summary="$1"
     local title="$2"
@@ -76,155 +76,73 @@ create_teams_payload() {
     # Escape for JSON properly using jq
     local escaped_summary=$(echo "$formatted_summary" | jq -Rs . 2>/dev/null || echo "\"Error formatting summary\"")
     
-    # Detect Teams webhook version
-    if echo "$WEBHOOK_URL" | grep -q "webhook.office.com/webhookb2"; then
-        echo "📋 Detected native Teams Incoming Webhook"
-        # Native Teams Incoming Webhook - MessageCard format
-        jq -n \
-            --arg title "$title" \
-            --arg time "$time" \
-            --arg repos "$REPO_COUNT" \
-            --arg commits "$COMMIT_COUNT" \
-            --arg period "$period" \
-            --argjson summary "$escaped_summary" \
-            --arg url "$url" \
-            '{
-                "@type": "MessageCard",
-                "@context": "https://schema.org/extensions",
-                "themeColor": "0078D4",
-                "title": $title,
-                "summary": ("Commits: " + $commits + " | Repos: " + $repos),
-                "sections": [
-                    {
-                        "activityTitle": $time,
-                        "facts": [
-                            {
-                                "name": "📚 Repositories Checked",
-                                "value": $repos
-                            },
-                            {
-                                "name": "💻 Commits Found",
-                                "value": $commits
-                            },
-                            {
-                                "name": "📅 Time Period",
-                                "value": $period
-                            }
-                        ]
-                    },
-                    {
-                        "title": "**Summary of Work Completed**",
-                        "text": $summary
-                    }
-                ],
-                "potentialAction": [
-                    {
-                        "@type": "OpenUri",
-                        "name": "🔍 View Workflow Run",
-                        "targets": [
-                            {
-                                "os": "default",
-                                "uri": $url
-                            }
-                        ]
-                    }
-                ]
-            }'
-    else
-        echo "📋 Using Power Automate/Teams Webhook format"
-        # Power Automate or other webhook - AdaptiveCard format
-        jq -n \
-            --arg title "$title" \
-            --arg time "$time" \
-            --arg repos "$REPO_COUNT" \
-            --arg commits "$COMMIT_COUNT" \
-            --arg period "$period" \
-            --argjson summary "$escaped_summary" \
-            --arg url "$url" \
-            '{
-                type: "message",
-                attachments: [{
-                    contentType: "application/vnd.microsoft.card.adaptive",
-                    content: {
-                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                        type: "AdaptiveCard",
-                        version: "1.3",
-                        body: [
-                            {
-                                type: "Container",
-                                style: "emphasis",
-                                bleed: true,
-                                items: [
-                                    {
-                                        type: "TextBlock",
-                                        text: $title,
-                                        size: "Large",
-                                        weight: "Bolder",
-                                        color: "Accent",
-                                        wrap: true
-                                    },
-                                    {
-                                        type: "TextBlock",
-                                        text: $time,
-                                        size: "Small",
-                                        color: "Default",
-                                        spacing: "None",
-                                        wrap: true
-                                    }
-                                ]
-                            },
-                            {
-                                type: "FactSet",
-                                facts: [
-                                    {
-                                        title: "📚 Repositories Checked",
-                                        value: $repos
-                                    },
-                                    {
-                                        title: "💻 Commits Found",
-                                        value: $commits
-                                    },
-                                    {
-                                        title: "📅 Time Period",
-                                        value: $period
-                                    }
-                                ],
-                                spacing: "Medium"
-                            },
-                            {
-                                type: "Container",
-                                style: "default",
-                                items: [
-                                    {
-                                        type: "TextBlock",
-                                        text: "**Summary of Work Completed**",
-                                        size: "Medium",
-                                        weight: "Bolder",
-                                        color: "Default",
-                                        spacing: "Medium",
-                                        wrap: true
-                                    },
-                                    {
-                                        type: "TextBlock",
-                                        text: $summary,
-                                        wrap: true,
-                                        spacing: "Small"
-                                    }
-                                ]
-                            }
-                        ],
-                        actions: [
-                            {
-                                type: "Action.OpenUrl",
-                                title: "🔍 View Workflow Run",
-                                url: $url,
-                                style: "positive"
-                            }
-                        ]
-                    }
-                }]
-            }'
-    fi
+    echo "📋 Using schema-compliant Teams/Power Automate format"
+    # Create payload that exactly matches the required schema
+    jq -n \
+        --arg title "$title" \
+        --arg time "$time" \
+        --arg repos "$REPO_COUNT" \
+        --arg commits "$COMMIT_COUNT" \
+        --arg period "$period" \
+        --argjson summary "$escaped_summary" \
+        --arg url "$url" \
+        '{
+            "type": "message",
+            "attachments": [{
+                "contentType": "application/vnd.microsoft.card.adaptive",
+                "content": {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "type": "AdaptiveCard",
+                    "version": "1.3",
+                    "body": [
+                        {
+                            "type": "Container"
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": $title,
+                            "size": "Large",
+                            "weight": "Bolder",
+                            "wrap": true
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": $time,
+                            "size": "Small",
+                            "wrap": true
+                        },
+                        {
+                            "type": "FactSet",
+                            "facts": [
+                                {
+                                    "title": "📚 Repositories",
+                                    "value": $repos
+                                },
+                                {
+                                    "title": "💻 Commits",
+                                    "value": $commits
+                                },
+                                {
+                                    "title": "📅 Period",
+                                    "value": $period
+                                }
+                            ]
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": "**Summary**",
+                            "weight": "Bolder",
+                            "wrap": true
+                        },
+                        {
+                            "type": "TextBlock",
+                            "text": $summary,
+                            "wrap": true
+                        }
+                    ]
+                }
+            }]
+        }'
 }
 
 # Send webhook with retry logic
@@ -368,24 +286,44 @@ main() {
     if ! send_webhook "$PAYLOAD"; then
         echo "🔄 Trying with simplified message format..."
         
-        # Create a simplified fallback payload for Teams
+        # Create a simplified fallback payload that matches the required schema
         # Clean the summary text first
         local clean_summary=$(echo "$SUMMARY" | tr -d '\r' | sed 's/\t/ /g' | jq -Rs . 2>/dev/null || echo "\"Summary unavailable\"")
         
+        echo "📋 Creating simplified schema-compliant payload"
+        # Simplified payload that still matches the required schema
         SIMPLE_PAYLOAD=$(jq -n \
             --arg title "$TITLE" \
             --argjson summary "$clean_summary" \
             --arg commits "$COMMIT_COUNT" \
             --arg repos "$REPO_COUNT" \
             '{
-                "@type": "MessageCard",
-                "@context": "https://schema.org/extensions",
-                "themeColor": "0078D4",
-                "summary": ("Daily Summary: " + $commits + " commits"),
-                "sections": [{
-                    "activityTitle": $title,
-                    "activitySubtitle": ("Found " + $commits + " commits across " + $repos + " repositories"),
-                    "text": $summary
+                "type": "message",
+                "attachments": [{
+                    "contentType": "application/vnd.microsoft.card.adaptive",
+                    "content": {
+                        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                        "type": "AdaptiveCard",
+                        "version": "1.3",
+                        "body": [
+                            {
+                                "type": "TextBlock",
+                                "text": $title,
+                                "weight": "Bolder",
+                                "wrap": true
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": ("Found " + $commits + " commits across " + $repos + " repositories"),
+                                "wrap": true
+                            },
+                            {
+                                "type": "TextBlock",
+                                "text": $summary,
+                                "wrap": true
+                            }
+                        ]
+                    }
                 }]
             }')
         
