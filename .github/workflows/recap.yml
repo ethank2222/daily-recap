@@ -82,14 +82,16 @@ jobs:
 
           TODAY=$(date +%u)  # weekday number (1=Mon ... 7=Sun)
 
-          # Handle Monday (include weekend commits)
+          # Handle Monday (include weekend commits) - Extended time window for debugging
           if [ "$TODAY" -eq 1 ]; then
-            START=$(date -d "3 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
+            START=$(date -d "4 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
           else
-            START=$(date -d "1 day ago 00:00" +"%Y-%m-%d %H:%M:%S")
+            START=$(date -d "2 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
           fi
 
-          END=$(date -d "today 00:00" +"%Y-%m-%d %H:%M:%S")
+          END=$(date -d "today 23:59" +"%Y-%m-%d %H:%M:%S")
+
+          echo "🔍 Debug: Extended time window for better coverage"
 
           echo "📅 Collecting commits between $START and $END (Pacific Time)"
 
@@ -97,14 +99,30 @@ jobs:
           echo "🔍 Fetching commits from all repositories..."
 
           # Convert dates to ISO format for GitHub API (Pacific to UTC)
-          START_ISO=$(date -u -d "$START" +"%Y-%m-%dT%H:%M:%SZ")
-          END_ISO=$(date -u -d "$END" +"%Y-%m-%dT%H:%M:%SZ")
+          # Fix: Properly convert Pacific time to UTC
+          START_ISO=$(TZ="America/Los_Angeles" date -d "$START" +"%Y-%m-%dT%H:%M:%SZ")
+          END_ISO=$(TZ="America/Los_Angeles" date -d "$END" +"%Y-%m-%dT%H:%M:%SZ")
+
+          echo "🔍 Debug: Time window for GitHub API:"
+          echo "  Start (UTC): $START_ISO"
+          echo "  End (UTC): $END_ISO"
 
                      # Get all repositories the user has access to (increased limit)
            echo "🔍 Fetching repositories from GitHub API..."
            REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
              -H "Accept: application/vnd.github.v3+json" \
-             "https://api.github.com/user/repos?type=all&sort=updated&per_page=200" || echo '[]')
+             "https://api.github.com/user/repos?type=all&sort=updated&per_page=200&affiliation=owner,collaborator,organization_member" || echo '[]')
+           
+           # Debug: Check API response for errors
+           if echo "$REPOS_RESPONSE" | jq -e 'has("message")' >/dev/null 2>&1; then
+             ERROR_MSG=$(echo "$REPOS_RESPONSE" | jq -r '.message // "Unknown error"' 2>/dev/null)
+             echo "❌ GitHub API Error: $ERROR_MSG"
+             echo "🔍 This might be due to:"
+             echo "   - Invalid GITHUB_TOKEN"
+             echo "   - Rate limiting"
+             echo "   - Insufficient permissions"
+             exit 1
+           fi
 
           # Debug: Check if we got a valid response
           if [ "$REPOS_RESPONSE" = "[]" ]; then
@@ -167,14 +185,28 @@ jobs:
                  COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                    -H "Accept: application/vnd.github.v3+json" \
                    "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=200&sha=all" || echo '[]')
+                 
+                 # Debug: Check if API call was successful
+                 if [ "$COMMITS_RESPONSE" = "[]" ]; then
+                   echo "  ⚠️ No commits returned from API for $repo"
+                   echo "  🔍 API URL used: https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=200&sha=all"
+                 fi
                 
                                  # Set specific username for filtering (ethank2222)
                  CURRENT_USER="ethank2222"
-                
-                                 # Extract commit information, filtering to only ethank2222's commits
+                 
+                 # Debug: Show all commits found (before filtering)
+                 TOTAL_COMMITS_IN_REPO=$(echo "$COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
+                 echo "  📊 Total commits in repo: $TOTAL_COMMITS_IN_REPO"
+                 
+                 # Show first few commits for debugging
+                 echo "  📋 First 3 commits (all authors):"
+                 echo "$COMMITS_RESPONSE" | jq -r '.[0:3] | .[] | "    - \(.sha[0:7]) by \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "    No commits found"
+                 
+                 # Extract commit information, filtering to only ethank2222's commits
                  REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
-                
-                                 # Count only ethank2222's commits
+                 
+                 # Count only ethank2222's commits
                  REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user)] | length' 2>/dev/null || echo "0")
                 
                 # Always show repository status, even if no commits
@@ -404,14 +436,15 @@ jobs:
             fi
           fi
 
-                     # Simple text payload for better compatibility
+                     # Enhanced markdown payload for better formatting
            PAYLOAD=$(jq -n \
              --arg title "$TITLE" \
              --arg summary "$SUMMARY" \
              --arg repo_count "$REPO_COUNT" \
              --arg commit_count "$COMMIT_COUNT" \
              '{
-               "text": ($title + "\n\n" + $summary + "\n\n📊 Stats: " + $repo_count + " repos checked, " + $commit_count + " commits found")
+               "text": ($title + "\n\n" + $summary + "\n\n---\n📊 **Summary Stats:**\n• **Repositories checked:** " + $repo_count + "\n• **Commits found:** " + $commit_count + "\n• **Generated:** " + (now | strftime("%B %d, %Y at %I:%M %p UTC"))),
+               "mrkdwn": true
              }')
 
           # Send with retries and exponential backoff
@@ -477,7 +510,7 @@ jobs:
             # Add production status indicators
             echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
             echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
-            echo "**Webhook Format:** Microsoft Teams MessageCard" >> $GITHUB_STEP_SUMMARY
+                         echo "**Webhook Format:** Enhanced Markdown" >> $GITHUB_STEP_SUMMARY
             echo "$SAFE_SUMMARY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
