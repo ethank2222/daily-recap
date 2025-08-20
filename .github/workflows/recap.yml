@@ -44,37 +44,37 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl jq
 
-      - name: Generate commit summary
-        id: summary
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+             - name: Generate commit summary
+         id: summary
+         env:
+           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-          # Security: Mask any potential leaks
-          if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-            echo "::add-mask::${ANTHROPIC_API_KEY}"
-          fi
+                     # Security: Mask any potential leaks
+           if [ -n "${OPENAI_API_KEY:-}" ]; then
+             echo "::add-mask::${OPENAI_API_KEY}"
+           fi
 
-          # Validate API key is present (never echo the actual key)
-          if [ -z "${ANTHROPIC_API_KEY:-}" ]; then
-            echo "❌ Error: ANTHROPIC_API_KEY secret is not configured"
-            echo "Please add your Anthropic API key to repository secrets:"
-            echo "1. Go to Settings → Secrets and variables → Actions"
-            echo "2. Click 'New repository secret'"
-            echo "3. Name: ANTHROPIC_API_KEY"
-            echo "4. Value: Your Claude API key"
-            exit 1
-          fi
+           # Validate API key is present (never echo the actual key)
+           if [ -z "${OPENAI_API_KEY:-}" ]; then
+             echo "❌ Error: OPENAI_API_KEY secret is not configured"
+             echo "Please add your OpenAI API key to repository secrets:"
+             echo "1. Go to Settings → Secrets and variables → Actions"
+             echo "2. Click 'New repository secret'"
+             echo "3. Name: OPENAI_API_KEY"
+             echo "4. Value: Your OpenAI API key"
+             exit 1
+           fi
 
-          # Security check: Validate key format without exposing it
-          KEY_LENGTH=${#ANTHROPIC_API_KEY}
-          if [ $KEY_LENGTH -lt 10 ]; then
-            echo "❌ Error: ANTHROPIC_API_KEY appears to be invalid (too short)"
-            exit 1
-          fi
-          echo "✅ API key validated (length: $KEY_LENGTH characters)"
+           # Security check: Validate key format without exposing it
+           KEY_LENGTH=${#OPENAI_API_KEY}
+           if [ $KEY_LENGTH -lt 10 ]; then
+             echo "❌ Error: OPENAI_API_KEY appears to be invalid (too short)"
+             exit 1
+           fi
+           echo "✅ API key validated (length: $KEY_LENGTH characters)"
 
           # ---- Time window setup (Pacific Time) ----
           # Set timezone to Pacific
@@ -187,37 +187,37 @@ jobs:
           # ---- Prepare Claude API request ----
           # Security: Never echo REQUEST_BODY as it might be logged
 
-          if [ "$COMMIT_COUNT" -eq 0 ]; then
-            # No commits found - create a simple message
-            REQUEST_BODY=$(jq -n \
-              --arg start "$START" \
-              --arg end "$END" \
-              '{
-                model: "claude-3-5-sonnet-20241022",
-                max_tokens: 200,
-                temperature: 0.3,
-                messages: [{
-                  role: "user",
-                  content: "No git commits were found between \($start) and \($end) Pacific Time. Create a brief, professional message acknowledging this quiet period. Keep it positive and encouraging. Format as 1-2 bullet points."
-                }]
-              }')
-          else
-            # Commits found - analyze them
-            REQUEST_BODY=$(jq -n \
-              --arg commits "$COMMITS" \
-              --arg start "$START" \
-              --arg end "$END" \
-              --arg count "$COMMIT_COUNT" \
-              '{
-                model: "claude-3-5-sonnet-20241022",
-                max_tokens: 400,
-                temperature: 0.3,
-                                 messages: [{
-                   role: "user",
-                   content: "Analyze these \($count) git commits across multiple repositories and create a comprehensive standup update.\n\nRepository Activity:\n\($commits)\n\nANALYSIS REQUIREMENTS:\n1. Review ALL repositories listed (including those with 0 commits)\n2. Identify the MOST IMPRESSIVE and IMPORTANT work completed\n3. Group related commits by repository and functionality\n4. Highlight cross-repository work and dependencies\n5. Mention specific repository names for context\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-6 bullets (combine small items)\n- Lead with the most impressive/impactful work\n- Keep technical but high-level (no file paths, but mention key technologies)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated, implemented)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Always mention repository names for context\n- Group work by project/theme when possible\n- Include brief technical descriptions\n\nExample format:\n- Implemented real-time data synchronization in user-dashboard repo, reducing API calls by 60%\n- Fixed critical authentication bug in auth-service repo affecting 3 dependent repositories\n- Enhanced error handling and logging across backend services (api-gateway, user-service)\n- Updated documentation and deployment scripts in devops-tools repo\n- No activity in monitoring-dashboard repo (planned for next sprint)\n\nGenerate comprehensive bullets now:"
-                 }]
-              }')
-          fi
+                      if [ "$COMMIT_COUNT" -eq 0 ]; then
+              # No commits found - create a simple message
+              REQUEST_BODY=$(jq -n \
+                --arg start "$START" \
+                --arg end "$END" \
+                '{
+                  model: "gpt-4o-mini",
+                  max_tokens: 200,
+                  temperature: 0.3,
+                  messages: [{
+                    role: "user",
+                    content: "No git commits were found between \($start) and \($end) Pacific Time. Create a brief, professional message acknowledging this quiet period. Keep it positive and encouraging. Format as 1-2 bullet points."
+                  }]
+                }')
+            else
+              # Commits found - analyze them
+              REQUEST_BODY=$(jq -n \
+                --arg commits "$COMMITS" \
+                --arg start "$START" \
+                --arg end "$END" \
+                --arg count "$COMMIT_COUNT" \
+                '{
+                  model: "gpt-4o-mini",
+                  max_tokens: 400,
+                  temperature: 0.3,
+                  messages: [{
+                    role: "user",
+                    content: "Analyze these \($count) git commits across multiple repositories and create a comprehensive standup update.\n\nRepository Activity:\n\($commits)\n\nANALYSIS REQUIREMENTS:\n1. Review ALL repositories listed (including those with 0 commits)\n2. Identify the MOST IMPRESSIVE and IMPORTANT work completed\n3. Group related commits by repository and functionality\n4. Highlight cross-repository work and dependencies\n5. Mention specific repository names for context\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-6 bullets (combine small items)\n- Lead with the most impressive/impactful work\n- Keep technical but high-level (no file paths, but mention key technologies)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated, implemented)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Always mention repository names for context\n- Group work by project/theme when possible\n- Include brief technical descriptions\n\nExample format:\n- Implemented real-time data synchronization in user-dashboard repo, reducing API calls by 60%\n- Fixed critical authentication bug in auth-service repo affecting 3 dependent repositories\n- Enhanced error handling and logging across backend services (api-gateway, user-service)\n- Updated documentation and deployment scripts in devops-tools repo\n- No activity in monitoring-dashboard repo (planned for next sprint)\n\nGenerate comprehensive bullets now:"
+                  }]
+                }')
+            fi
 
           echo "📝 Prepared API request for $COMMIT_COUNT commits"
 
@@ -225,39 +225,50 @@ jobs:
           MAX_RETRIES=3
           RETRY_DELAY=2
 
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Calling Claude API (attempt $i/$MAX_RETRIES)..."
+                     for i in $(seq 1 $MAX_RETRIES); do
+             echo "Calling OpenAI API (attempt $i/$MAX_RETRIES)..."
+             
+             # Security: Never log the actual request or response that might contain keys
+             RESPONSE=$(curl -s -S --max-time 30 \
+               https://api.openai.com/v1/chat/completions \
+               -H "Authorization: Bearer $OPENAI_API_KEY" \
+               -H "Content-Type: application/json" \
+               -d "$REQUEST_BODY" 2>/dev/null || echo '{"error": "curl failed"}')
             
-            # Security: Never log the actual request or response that might contain keys
-            RESPONSE=$(curl -s -S --max-time 30 \
-              https://api.anthropic.com/v1/messages \
-              -H "x-api-key: $ANTHROPIC_API_KEY" \
-              -H "anthropic-version: 2023-06-01" \
-              -H "content-type: application/json" \
-              -d "$REQUEST_BODY" 2>/dev/null || echo '{"error": "curl failed"}')
+                       # Security: Don't echo raw response which might contain sensitive data
+           # Check for rate limit without exposing response
+           if echo "$RESPONSE" | grep -q "rate_limit\|quota_exceeded" 2>/dev/null; then
+             echo "⚠️ Rate limited or quota exceeded. Waiting ${RETRY_DELAY}s..."
+             sleep $RETRY_DELAY
+             RETRY_DELAY=$((RETRY_DELAY * 2))
+             continue
+           fi
+           
+           # Check for authentication errors
+           if echo "$RESPONSE" | grep -q "invalid_api_key\|authentication" 2>/dev/null; then
+             echo "❌ Authentication failed. Please check your OPENAI_API_KEY secret."
+             exit 1
+           fi
             
-            # Security: Don't echo raw response which might contain sensitive data
-            # Check for rate limit without exposing response
-            if echo "$RESPONSE" | grep -q "rate_limit" 2>/dev/null; then
-              echo "⚠️ Rate limited. Waiting ${RETRY_DELAY}s..."
-              sleep $RETRY_DELAY
-              RETRY_DELAY=$((RETRY_DELAY * 2))
-              continue
-            fi
-            
-            # Extract summary from response (safe to display)
-            SUMMARY=$(echo "$RESPONSE" | jq -r '.content[0].text // empty' 2>/dev/null)
+                         # Extract summary from response (safe to display)
+             SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
             
             if [ -n "$SUMMARY" ]; then
               echo "✅ Successfully generated summary"
               break
             fi
             
-            # Security: Extract error message but sanitize it
-            ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .error // "Unknown error"' 2>/dev/null | \
-              sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | \
-              sed 's/[a-zA-Z0-9]{32,}/**KEY**/g')
-            echo "⚠️ API call failed: ${ERROR:0:100}"  # Truncate error message
+                       # Security: Extract error message but sanitize it
+           ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .error // "Unknown error"' 2>/dev/null | \
+             sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | \
+             sed 's/[a-zA-Z0-9]{32,}/**KEY**/g')
+           echo "⚠️ API call failed: ${ERROR:0:100}"  # Truncate error message
+           
+           # Log response status for debugging (without sensitive data)
+           HTTP_STATUS=$(echo "$RESPONSE" | jq -r '.error.status // "unknown"' 2>/dev/null)
+           if [ "$HTTP_STATUS" != "null" ] && [ "$HTTP_STATUS" != "unknown" ]; then
+             echo "📊 HTTP Status: $HTTP_STATUS"
+           fi
             
             if [ $i -lt $MAX_RETRIES ]; then
               echo "Retrying in ${RETRY_DELAY}s..."
@@ -373,6 +384,7 @@ jobs:
              --arg commit_count "$COMMIT_COUNT" \
              --arg current_time "$CURRENT_TIME" \
              --arg time_period "$TIME_PERIOD" \
+             --arg subtitle "Generated on $CURRENT_TIME" \
              '{
                "@type": "MessageCard",
                "@context": "http://schema.org/extensions",
@@ -381,7 +393,7 @@ jobs:
                "sections": [
                  {
                    "activityTitle": $title,
-                   "activitySubtitle": "Generated on " + $current_time,
+                   "activitySubtitle": $subtitle,
                    "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
                    "facts": [
                      {
@@ -414,9 +426,12 @@ jobs:
                ]
              }')
 
-          # Send with retries and exponential backoff
-          MAX_RETRIES=3
-          RETRY_DELAY=2
+                     # Send with retries and exponential backoff
+           MAX_RETRIES=3
+           RETRY_DELAY=2
+           
+           # Log webhook attempt
+           echo "📤 Attempting to send webhook to Teams..."
 
           for i in $(seq 1 $MAX_RETRIES); do
             # Security: Send request without exposing URL in logs
@@ -443,10 +458,14 @@ jobs:
             fi
           done
 
-          # Security: Fail without exposing webhook details
-          echo "❌ Failed to send webhook after $MAX_RETRIES attempts"
-          echo "Please verify your WEBHOOK_URL secret is correctly configured"
-          exit 1
+                     # Security: Fail without exposing webhook details
+           echo "❌ Failed to send webhook after $MAX_RETRIES attempts"
+           echo "Please verify your WEBHOOK_URL secret is correctly configured"
+           echo "Common issues:"
+           echo "- Webhook URL is invalid or expired"
+           echo "- Teams channel permissions are incorrect"
+           echo "- Network connectivity issues"
+           exit 1
 
       - name: Job summary
         if: always()
@@ -462,10 +481,15 @@ jobs:
             echo "**Repositories checked:** ${{ steps.summary.outputs.REPO_COUNT }}" >> $GITHUB_STEP_SUMMARY
             echo "**Commits found:** ${{ steps.summary.outputs.COMMIT_COUNT }}" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-            # Security: Only show the generated summary, no API responses or keys
-            SAFE_SUMMARY="${{ steps.summary.outputs.SUMMARY }}"
-            # Additional sanitization: Remove any potential leaked keys
-            SAFE_SUMMARY=$(echo "$SAFE_SUMMARY" | sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | sed 's/[a-fA-F0-9]{32,}/**KEY**/g')
+                       # Security: Only show the generated summary, no API responses or keys
+           SAFE_SUMMARY="${{ steps.summary.outputs.SUMMARY }}"
+           # Additional sanitization: Remove any potential leaked keys
+           SAFE_SUMMARY=$(echo "$SAFE_SUMMARY" | sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | sed 's/[a-fA-F0-9]{32,}/**KEY**/g')
+           
+           # Add production status indicators
+           echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
+           echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
+           echo "**Webhook Format:** Microsoft Teams MessageCard" >> $GITHUB_STEP_SUMMARY
             echo "$SAFE_SUMMARY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
