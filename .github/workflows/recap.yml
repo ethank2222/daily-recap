@@ -363,11 +363,16 @@ jobs:
 
                      # Security: Payload only contains the summary, no keys or URLs
            # Enhanced Teams webhook payload with rich formatting
+           CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
+           TIME_PERIOD=$(if [ "$COMMIT_COUNT" -gt 0 ]; then echo "Active development"; else echo "Planning/meetings focus"; fi)
+           
            PAYLOAD=$(jq -n \
              --arg title "$TITLE" \
              --arg summary "$SUMMARY" \
              --arg repo_count "$REPO_COUNT" \
              --arg commit_count "$COMMIT_COUNT" \
+             --arg current_time "$CURRENT_TIME" \
+             --arg time_period "$TIME_PERIOD" \
              '{
                "@type": "MessageCard",
                "@context": "http://schema.org/extensions",
@@ -376,7 +381,7 @@ jobs:
                "sections": [
                  {
                    "activityTitle": $title,
-                   "activitySubtitle": "Generated on " + (now | strftime("%B %d, %Y at %I:%M %p UTC")),
+                   "activitySubtitle": "Generated on " + $current_time,
                    "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
                    "facts": [
                      {
@@ -389,7 +394,7 @@ jobs:
                      },
                      {
                        "name": "⏰ Time Period",
-                       "value": (if ($commit_count | tonumber) > 0 then "Active development" else "Planning/meetings focus" end)
+                       "value": $time_period
                      }
                    ],
                    "text": $summary
