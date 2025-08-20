@@ -128,24 +128,24 @@ jobs:
               if [ -n "$repo" ]; then
                 echo "🔍 Checking repository: $repo"
                 
-                # Get commits for this repository in the time window
-                COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100" || echo '[]')
+                                 # Get commits for this repository in the time window (all branches)
+                 COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                   -H "Accept: application/vnd.github.v3+json" \
+                   "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100&sha=all" || echo '[]')
                 
                 # Get current user's username for filtering
                 CURRENT_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                   -H "Accept: application/vnd.github.v3+json" \
                   "https://api.github.com/user" | jq -r '.login' 2>/dev/null || echo "")
                 
-                # Extract commit information, filtering to only current user's commits
-                if [ -n "$CURRENT_USER" ]; then
-                  REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
-                else
-                  # Fallback if we can't get current user - skip this repo
-                  echo "  ⚠️ Could not determine current user, skipping $repo"
-                  REPO_COMMITS=""
-                fi
+                                 # Extract commit information, filtering to only current user's commits
+                 if [ -n "$CURRENT_USER" ]; then
+                   REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
+                 else
+                   # Fallback if we can't get current user - skip this repo
+                   echo "  ⚠️ Could not determine current user, skipping $repo"
+                   REPO_COMMITS=""
+                 fi
                 
                 # Count only current user's commits
                 if [ -n "$CURRENT_USER" ]; then
@@ -187,36 +187,36 @@ jobs:
           # ---- Prepare OpenAI API request ----
           # Security: Never echo REQUEST_BODY as it might be logged
 
-          if [ "$COMMIT_COUNT" -eq 0 ]; then
-            # No commits found - create a simple message
-            REQUEST_BODY=$(jq -n \
-              --arg start "$START" \
-              --arg end "$END" \
-              '{
-                model: "gpt-4o-mini",
-                max_tokens: 200,
-                temperature: 0.3,
-                messages: [{
-                  role: "user",
-                  content: "No git commits were found between \($start) and \($end) Pacific Time. Create a brief, professional message acknowledging this quiet period. Keep it positive and encouraging. Format as 1-2 bullet points."
-                }]
-              }')
+                     if [ "$COMMIT_COUNT" -eq 0 ]; then
+             # No commits found - create a simple message
+             REQUEST_BODY=$(jq -n \
+               --arg start "$START" \
+               --arg end "$END" \
+               '{
+                 model: "gpt-4o-mini",
+                 max_tokens: 100,
+                 temperature: 0.3,
+                 messages: [{
+                   role: "user",
+                   content: "No git commits found between \($start) and \($end). Create a brief message: '📁 No repositories with commits in this period'"
+                 }]
+               }')
           else
-            # Commits found - analyze them
-            REQUEST_BODY=$(jq -n \
-              --arg commits "$COMMITS" \
-              --arg start "$START" \
-              --arg end "$END" \
-              --arg count "$COMMIT_COUNT" \
-              '{
-                model: "gpt-4o-mini",
-                max_tokens: 400,
-                temperature: 0.3,
-                messages: [{
-                  role: "user",
-                  content: "Analyze these \($count) git commits across multiple repositories and create a comprehensive standup update.\n\nRepository Activity:\n\($commits)\n\nANALYSIS REQUIREMENTS:\n1. Review ALL repositories listed (including those with 0 commits)\n2. Identify the MOST IMPRESSIVE and IMPORTANT work completed\n3. Group related commits by repository and functionality\n4. Highlight cross-repository work and dependencies\n5. Mention specific repository names for context\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-6 bullets (combine small items)\n- Lead with the most impressive/impactful work\n- Keep technical but high-level (no file paths, but mention key technologies)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated, implemented)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Always mention repository names for context\n- Group work by project/theme when possible\n- Include brief technical descriptions\n\nExample format:\n- Implemented real-time data synchronization in user-dashboard repo, reducing API calls by 60%\n- Fixed critical authentication bug in auth-service repo affecting 3 dependent repositories\n- Enhanced error handling and logging across backend services (api-gateway, user-service)\n- Updated documentation and deployment scripts in devops-tools repo\n- No activity in monitoring-dashboard repo (planned for next sprint)\n\nGenerate comprehensive bullets now:"
-                }]
-              }')
+                         # Commits found - analyze them
+             REQUEST_BODY=$(jq -n \
+               --arg commits "$COMMITS" \
+               --arg start "$START" \
+               --arg end "$END" \
+               --arg count "$COMMIT_COUNT" \
+               '{
+                 model: "gpt-4o-mini",
+                 max_tokens: 300,
+                 temperature: 0.3,
+                 messages: [{
+                   role: "user",
+                   content: "Create a concise daily summary from these \($count) git commits.\n\nRepository Activity:\n\($commits)\n\nREQUIREMENTS:\n- List ONLY repository names and commit counts\n- Include ONLY the main functionalities you worked on\n- Keep it brief and technical\n- No explanations or fluff\n- Focus on what was actually built/fixed/improved\n\nFORMAT:\n📁 Repo Name (X commits):\n• Functionality 1\n• Functionality 2\n\n📁 Another Repo (Y commits):\n• Functionality 3\n\nGenerate the summary:"
+                 }]
+               }')
           fi
 
           echo "📝 Prepared API request for $COMMIT_COUNT commits"
@@ -277,26 +277,26 @@ jobs:
             fi
           done
 
-          # Fallback if API fails
-          if [ -z "$SUMMARY" ]; then
-            echo "⚠️ Using fallback summary"
-            # Handle case where REPO_COUNT might not be defined (fallback scenario)
-            REPO_COUNT_DISPLAY=${REPO_COUNT:-1}
-            
-            if [ "$COMMIT_COUNT" -eq 0 ]; then
-              if [ "$TODAY" -eq 1 ]; then
-                SUMMARY="- No development activity detected over the weekend across $REPO_COUNT_DISPLAY repositories\n- Taking time to plan and prepare for the week ahead"
-              else
-                SUMMARY="- No development activity detected yesterday across $REPO_COUNT_DISPLAY repositories\n- Focused on planning, meetings, or other non-coding tasks"
-              fi
-            else
-              if [ "$TODAY" -eq 1 ]; then
-                SUMMARY="- Completed $COMMIT_COUNT development tasks across $REPO_COUNT_DISPLAY repositories over the weekend\n- Various improvements and fixes shipped\n- Details available in commit history"
-              else
-                SUMMARY="- Completed $COMMIT_COUNT development tasks across $REPO_COUNT_DISPLAY repositories yesterday\n- Multiple improvements and updates shipped\n- See commit history for specifics"
-              fi
-            fi
-          fi
+                     # Fallback if API fails
+           if [ -z "$SUMMARY" ]; then
+             echo "⚠️ Using fallback summary"
+             # Handle case where REPO_COUNT might not be defined (fallback scenario)
+             REPO_COUNT_DISPLAY=${REPO_COUNT:-1}
+             
+             if [ "$COMMIT_COUNT" -eq 0 ]; then
+               if [ "$TODAY" -eq 1 ]; then
+                 SUMMARY="📁 No repositories with commits over the weekend"
+               else
+                 SUMMARY="📁 No repositories with commits yesterday"
+               fi
+             else
+               if [ "$TODAY" -eq 1 ]; then
+                 SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories over the weekend"
+               else
+                 SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories yesterday"
+               fi
+             fi
+           fi
 
           # Security: Final sanitization before saving
           SUMMARY=$(echo "$SUMMARY" | \
