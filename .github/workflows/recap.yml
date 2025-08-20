@@ -1,7 +1,7 @@
 name: Daily Commit Summary
 
 # Security: This workflow uses GitHub Secrets for sensitive data
-# - ANTHROPIC_API_KEY: Never logged or exposed
+# - OPENAI_API_KEY: Never logged or exposed
 # - WEBHOOK_URL: Masked in all outputs
 # All sensitive data is masked using ::add-mask:: directive
 # Error messages are sanitized to prevent key leakage
@@ -9,7 +9,7 @@ name: Daily Commit Summary
 on:
   schedule:
     # Runs at 8:45 AM PT (15:45 UTC) Monday-Friday
-    - cron: "45 15 * * 1-5" # FIXED: Added space between asterisks
+    - cron: "45 15 * * 1-5"
   workflow_dispatch: # Allow manual triggering for testing
 
 jobs:
@@ -44,37 +44,37 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y curl jq
 
-             - name: Generate commit summary
-         id: summary
-         env:
-           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate commit summary
+        id: summary
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
 
-                     # Security: Mask any potential leaks
-           if [ -n "${OPENAI_API_KEY:-}" ]; then
-             echo "::add-mask::${OPENAI_API_KEY}"
-           fi
+          # Security: Mask any potential leaks
+          if [ -n "${OPENAI_API_KEY:-}" ]; then
+            echo "::add-mask::${OPENAI_API_KEY}"
+          fi
 
-           # Validate API key is present (never echo the actual key)
-           if [ -z "${OPENAI_API_KEY:-}" ]; then
-             echo "❌ Error: OPENAI_API_KEY secret is not configured"
-             echo "Please add your OpenAI API key to repository secrets:"
-             echo "1. Go to Settings → Secrets and variables → Actions"
-             echo "2. Click 'New repository secret'"
-             echo "3. Name: OPENAI_API_KEY"
-             echo "4. Value: Your OpenAI API key"
-             exit 1
-           fi
+          # Validate API key is present (never echo the actual key)
+          if [ -z "${OPENAI_API_KEY:-}" ]; then
+            echo "❌ Error: OPENAI_API_KEY secret is not configured"
+            echo "Please add your OpenAI API key to repository secrets:"
+            echo "1. Go to Settings → Secrets and variables → Actions"
+            echo "2. Click 'New repository secret'"
+            echo "3. Name: OPENAI_API_KEY"
+            echo "4. Value: Your OpenAI API key"
+            exit 1
+          fi
 
-           # Security check: Validate key format without exposing it
-           KEY_LENGTH=${#OPENAI_API_KEY}
-           if [ $KEY_LENGTH -lt 10 ]; then
-             echo "❌ Error: OPENAI_API_KEY appears to be invalid (too short)"
-             exit 1
-           fi
-           echo "✅ API key validated (length: $KEY_LENGTH characters)"
+          # Security check: Validate key format without exposing it
+          KEY_LENGTH=${#OPENAI_API_KEY}
+          if [ $KEY_LENGTH -lt 10 ]; then
+            echo "❌ Error: OPENAI_API_KEY appears to be invalid (too short)"
+            exit 1
+          fi
+          echo "✅ API key validated (length: $KEY_LENGTH characters)"
 
           # ---- Time window setup (Pacific Time) ----
           # Set timezone to Pacific
@@ -128,45 +128,45 @@ jobs:
               if [ -n "$repo" ]; then
                 echo "🔍 Checking repository: $repo"
                 
-                                        # Get commits for this repository in the time window
-                        COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                          -H "Accept: application/vnd.github.v3+json" \
-                          "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100" || echo '[]')
-                        
-                        # Get current user's username for filtering
-                        CURRENT_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                          -H "Accept: application/vnd.github.v3+json" \
-                          "https://api.github.com/user" | jq -r '.login' 2>/dev/null || echo "")
-                        
-                                                # Extract commit information, filtering to only current user's commits
-                        if [ -n "$CURRENT_USER" ]; then
-                          REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
-                        else
-                          # Fallback if we can't get current user - skip this repo
-                          echo "  ⚠️ Could not determine current user, skipping $repo"
-                          REPO_COMMITS=""
-                        fi
+                # Get commits for this repository in the time window
+                COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100" || echo '[]')
                 
-                        # Count only current user's commits
-                        if [ -n "$CURRENT_USER" ]; then
-                          REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user)] | length' 2>/dev/null || echo "0")
-                        else
-                          REPO_COMMIT_COUNT=0
-                        fi
-                        
-                        # Always show repository status, even if no commits
-                        echo "  📝 Found $REPO_COMMIT_COUNT of your commits in $repo"
-                        
-                        # Add repository header and commits (or no commits message)
-                        if [ -n "$REPO_COMMITS" ] && [ "$REPO_COMMIT_COUNT" -gt 0 ]; then
-                          ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** ($REPO_COMMIT_COUNT commits):\n$REPO_COMMITS"
-                          TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
-                        else
-                          ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** (0 commits):\n• No commits in this period"
-                        fi
-                        
-                        # Always increment repo count since we're checking every repo
-                        REPO_COUNT=$((REPO_COUNT + 1))
+                # Get current user's username for filtering
+                CURRENT_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  "https://api.github.com/user" | jq -r '.login' 2>/dev/null || echo "")
+                
+                # Extract commit information, filtering to only current user's commits
+                if [ -n "$CURRENT_USER" ]; then
+                  REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
+                else
+                  # Fallback if we can't get current user - skip this repo
+                  echo "  ⚠️ Could not determine current user, skipping $repo"
+                  REPO_COMMITS=""
+                fi
+                
+                # Count only current user's commits
+                if [ -n "$CURRENT_USER" ]; then
+                  REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user)] | length' 2>/dev/null || echo "0")
+                else
+                  REPO_COMMIT_COUNT=0
+                fi
+                
+                # Always show repository status, even if no commits
+                echo "  📝 Found $REPO_COMMIT_COUNT of your commits in $repo"
+                
+                # Add repository header and commits (or no commits message)
+                if [ -n "$REPO_COMMITS" ] && [ "$REPO_COMMIT_COUNT" -gt 0 ]; then
+                  ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** ($REPO_COMMIT_COUNT commits):\n$REPO_COMMITS"
+                  TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
+                else
+                  ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** (0 commits):\n• No commits in this period"
+                fi
+                
+                # Always increment repo count since we're checking every repo
+                REPO_COUNT=$((REPO_COUNT + 1))
               fi
             done <<< "$REPOS"
 
@@ -184,91 +184,91 @@ jobs:
             echo "Found $COMMIT_COUNT commits to summarize"
           fi
 
-          # ---- Prepare Claude API request ----
+          # ---- Prepare OpenAI API request ----
           # Security: Never echo REQUEST_BODY as it might be logged
 
-                      if [ "$COMMIT_COUNT" -eq 0 ]; then
-              # No commits found - create a simple message
-              REQUEST_BODY=$(jq -n \
-                --arg start "$START" \
-                --arg end "$END" \
-                '{
-                  model: "gpt-4o-mini",
-                  max_tokens: 200,
-                  temperature: 0.3,
-                  messages: [{
-                    role: "user",
-                    content: "No git commits were found between \($start) and \($end) Pacific Time. Create a brief, professional message acknowledging this quiet period. Keep it positive and encouraging. Format as 1-2 bullet points."
-                  }]
-                }')
-            else
-              # Commits found - analyze them
-              REQUEST_BODY=$(jq -n \
-                --arg commits "$COMMITS" \
-                --arg start "$START" \
-                --arg end "$END" \
-                --arg count "$COMMIT_COUNT" \
-                '{
-                  model: "gpt-4o-mini",
-                  max_tokens: 400,
-                  temperature: 0.3,
-                  messages: [{
-                    role: "user",
-                    content: "Analyze these \($count) git commits across multiple repositories and create a comprehensive standup update.\n\nRepository Activity:\n\($commits)\n\nANALYSIS REQUIREMENTS:\n1. Review ALL repositories listed (including those with 0 commits)\n2. Identify the MOST IMPRESSIVE and IMPORTANT work completed\n3. Group related commits by repository and functionality\n4. Highlight cross-repository work and dependencies\n5. Mention specific repository names for context\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-6 bullets (combine small items)\n- Lead with the most impressive/impactful work\n- Keep technical but high-level (no file paths, but mention key technologies)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated, implemented)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Always mention repository names for context\n- Group work by project/theme when possible\n- Include brief technical descriptions\n\nExample format:\n- Implemented real-time data synchronization in user-dashboard repo, reducing API calls by 60%\n- Fixed critical authentication bug in auth-service repo affecting 3 dependent repositories\n- Enhanced error handling and logging across backend services (api-gateway, user-service)\n- Updated documentation and deployment scripts in devops-tools repo\n- No activity in monitoring-dashboard repo (planned for next sprint)\n\nGenerate comprehensive bullets now:"
-                  }]
-                }')
-            fi
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            # No commits found - create a simple message
+            REQUEST_BODY=$(jq -n \
+              --arg start "$START" \
+              --arg end "$END" \
+              '{
+                model: "gpt-4o-mini",
+                max_tokens: 200,
+                temperature: 0.3,
+                messages: [{
+                  role: "user",
+                  content: "No git commits were found between \($start) and \($end) Pacific Time. Create a brief, professional message acknowledging this quiet period. Keep it positive and encouraging. Format as 1-2 bullet points."
+                }]
+              }')
+          else
+            # Commits found - analyze them
+            REQUEST_BODY=$(jq -n \
+              --arg commits "$COMMITS" \
+              --arg start "$START" \
+              --arg end "$END" \
+              --arg count "$COMMIT_COUNT" \
+              '{
+                model: "gpt-4o-mini",
+                max_tokens: 400,
+                temperature: 0.3,
+                messages: [{
+                  role: "user",
+                  content: "Analyze these \($count) git commits across multiple repositories and create a comprehensive standup update.\n\nRepository Activity:\n\($commits)\n\nANALYSIS REQUIREMENTS:\n1. Review ALL repositories listed (including those with 0 commits)\n2. Identify the MOST IMPRESSIVE and IMPORTANT work completed\n3. Group related commits by repository and functionality\n4. Highlight cross-repository work and dependencies\n5. Mention specific repository names for context\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-6 bullets (combine small items)\n- Lead with the most impressive/impactful work\n- Keep technical but high-level (no file paths, but mention key technologies)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated, implemented)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Always mention repository names for context\n- Group work by project/theme when possible\n- Include brief technical descriptions\n\nExample format:\n- Implemented real-time data synchronization in user-dashboard repo, reducing API calls by 60%\n- Fixed critical authentication bug in auth-service repo affecting 3 dependent repositories\n- Enhanced error handling and logging across backend services (api-gateway, user-service)\n- Updated documentation and deployment scripts in devops-tools repo\n- No activity in monitoring-dashboard repo (planned for next sprint)\n\nGenerate comprehensive bullets now:"
+                }]
+              }')
+          fi
 
           echo "📝 Prepared API request for $COMMIT_COUNT commits"
 
-          # ---- Call Claude API with exponential backoff ----
+          # ---- Call OpenAI API with exponential backoff ----
           MAX_RETRIES=3
           RETRY_DELAY=2
 
-                     for i in $(seq 1 $MAX_RETRIES); do
-             echo "Calling OpenAI API (attempt $i/$MAX_RETRIES)..."
-             
-             # Security: Never log the actual request or response that might contain keys
-             RESPONSE=$(curl -s -S --max-time 30 \
-               https://api.openai.com/v1/chat/completions \
-               -H "Authorization: Bearer $OPENAI_API_KEY" \
-               -H "Content-Type: application/json" \
-               -d "$REQUEST_BODY" 2>/dev/null || echo '{"error": "curl failed"}')
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Calling OpenAI API (attempt $i/$MAX_RETRIES)..."
             
-                       # Security: Don't echo raw response which might contain sensitive data
-           # Check for rate limit without exposing response
-           if echo "$RESPONSE" | grep -q "rate_limit\|quota_exceeded" 2>/dev/null; then
-             echo "⚠️ Rate limited or quota exceeded. Waiting ${RETRY_DELAY}s..."
-             sleep $RETRY_DELAY
-             RETRY_DELAY=$((RETRY_DELAY * 2))
-             continue
-           fi
-           
-           # Check for authentication errors
-           if echo "$RESPONSE" | grep -q "invalid_api_key\|authentication" 2>/dev/null; then
-             echo "❌ Authentication failed. Please check your OPENAI_API_KEY secret."
-             exit 1
-           fi
+            # Security: Never log the actual request or response that might contain keys
+            RESPONSE=$(curl -s -S --max-time 30 \
+              https://api.openai.com/v1/chat/completions \
+              -H "Authorization: Bearer $OPENAI_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$REQUEST_BODY" 2>/dev/null || echo '{"error": "curl failed"}')
             
-                         # Extract summary from response (safe to display)
-             SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+            # Security: Don't echo raw response which might contain sensitive data
+            # Check for rate limit without exposing response
+            if echo "$RESPONSE" | grep -q "rate_limit\|quota_exceeded" 2>/dev/null; then
+              echo "⚠️ Rate limited or quota exceeded. Waiting ${RETRY_DELAY}s..."
+              sleep $RETRY_DELAY
+              RETRY_DELAY=$((RETRY_DELAY * 2))
+              continue
+            fi
+            
+            # Check for authentication errors
+            if echo "$RESPONSE" | grep -q "invalid_api_key\|authentication" 2>/dev/null; then
+              echo "❌ Authentication failed. Please check your OPENAI_API_KEY secret."
+              exit 1
+            fi
+            
+            # Extract summary from response (safe to display)
+            SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
             
             if [ -n "$SUMMARY" ]; then
               echo "✅ Successfully generated summary"
               break
             fi
             
-                       # Security: Extract error message but sanitize it
-           ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .error // "Unknown error"' 2>/dev/null | \
-             sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | \
-             sed 's/[a-zA-Z0-9]{32,}/**KEY**/g')
-           echo "⚠️ API call failed: ${ERROR:0:100}"  # Truncate error message
-           
-           # Log response status for debugging (without sensitive data)
-           HTTP_STATUS=$(echo "$RESPONSE" | jq -r '.error.status // "unknown"' 2>/dev/null)
-           if [ "$HTTP_STATUS" != "null" ] && [ "$HTTP_STATUS" != "unknown" ]; then
-             echo "📊 HTTP Status: $HTTP_STATUS"
-           fi
+            # Security: Extract error message but sanitize it
+            ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .error // "Unknown error"' 2>/dev/null | \
+              sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | \
+              sed 's/[a-zA-Z0-9]{32,}/**KEY**/g')
+            echo "⚠️ API call failed: ${ERROR:0:100}"  # Truncate error message
+            
+            # Log response status for debugging (without sensitive data)
+            HTTP_STATUS=$(echo "$RESPONSE" | jq -r '.error.status // "unknown"' 2>/dev/null)
+            if [ "$HTTP_STATUS" != "null" ] && [ "$HTTP_STATUS" != "unknown" ]; then
+              echo "📊 HTTP Status: $HTTP_STATUS"
+            fi
             
             if [ $i -lt $MAX_RETRIES ]; then
               echo "Retrying in ${RETRY_DELAY}s..."
@@ -356,82 +356,82 @@ jobs:
 
           echo "📤 Sending summary to webhook..."
 
-                     # Prepare payload with proper escaping (no sensitive data included)
-           # Adjust message for Monday (weekend commits) vs other days
-           if [ "$COMMIT_COUNT" -eq 0 ]; then
-             if [ "$TODAY" -eq 1 ]; then
-               TITLE="🚀 **Weekend & Friday Development Summary**"
-             else
-               TITLE="🚀 **Yesterday's Development Summary**"
-             fi
-           else
-             if [ "$TODAY" -eq 1 ]; then
-               TITLE="🚀 **Weekend & Friday Development Summary**"
-             else
-               TITLE="🚀 **Yesterday's Development Summary**"
-             fi
-           fi
+          # Prepare payload with proper escaping (no sensitive data included)
+          # Adjust message for Monday (weekend commits) vs other days
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            if [ "$TODAY" -eq 1 ]; then
+              TITLE="🚀 **Weekend & Friday Development Summary**"
+            else
+              TITLE="🚀 **Yesterday's Development Summary**"
+            fi
+          else
+            if [ "$TODAY" -eq 1 ]; then
+              TITLE="🚀 **Weekend & Friday Development Summary**"
+            else
+              TITLE="🚀 **Yesterday's Development Summary**"
+            fi
+          fi
 
-                     # Security: Payload only contains the summary, no keys or URLs
-           # Enhanced Teams webhook payload with rich formatting
-           CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
-           TIME_PERIOD=$(if [ "$COMMIT_COUNT" -gt 0 ]; then echo "Active development"; else echo "Planning/meetings focus"; fi)
-           
-           PAYLOAD=$(jq -n \
-             --arg title "$TITLE" \
-             --arg summary "$SUMMARY" \
-             --arg repo_count "$REPO_COUNT" \
-             --arg commit_count "$COMMIT_COUNT" \
-             --arg current_time "$CURRENT_TIME" \
-             --arg time_period "$TIME_PERIOD" \
-             --arg subtitle "Generated on $CURRENT_TIME" \
-             '{
-               "@type": "MessageCard",
-               "@context": "http://schema.org/extensions",
-               "themeColor": "0076D7",
-               "summary": $title,
-               "sections": [
-                 {
-                   "activityTitle": $title,
-                   "activitySubtitle": $subtitle,
-                   "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
-                   "facts": [
-                     {
-                       "name": "📚 Repositories Checked",
-                       "value": $repo_count
-                     },
-                     {
-                       "name": "💻 Commits Found",
-                       "value": $commit_count
-                     },
-                     {
-                       "name": "⏰ Time Period",
-                       "value": $time_period
-                     }
-                   ],
-                   "text": $summary
-                 }
-               ],
-               "potentialAction": [
-                 {
-                   "@type": "OpenUri",
-                   "name": "🔍 View Repository",
-                   "targets": [
-                     {
-                       "os": "default",
-                       "uri": "https://github.com"
-                     }
-                   ]
-                 }
-               ]
-             }')
+          # Security: Payload only contains the summary, no keys or URLs
+          # Enhanced Teams webhook payload with rich formatting
+          CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
+          TIME_PERIOD=$(if [ "$COMMIT_COUNT" -gt 0 ]; then echo "Active development"; else echo "Planning/meetings focus"; fi)
 
-                     # Send with retries and exponential backoff
-           MAX_RETRIES=3
-           RETRY_DELAY=2
-           
-           # Log webhook attempt
-           echo "📤 Attempting to send webhook to Teams..."
+          PAYLOAD=$(jq -n \
+            --arg title "$TITLE" \
+            --arg summary "$SUMMARY" \
+            --arg repo_count "$REPO_COUNT" \
+            --arg commit_count "$COMMIT_COUNT" \
+            --arg current_time "$CURRENT_TIME" \
+            --arg time_period "$TIME_PERIOD" \
+            --arg subtitle "Generated on $CURRENT_TIME" \
+            '{
+              "@type": "MessageCard",
+              "@context": "http://schema.org/extensions",
+              "themeColor": "0076D7",
+              "summary": $title,
+              "sections": [
+                {
+                  "activityTitle": $title,
+                  "activitySubtitle": $subtitle,
+                  "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+                  "facts": [
+                    {
+                      "name": "📚 Repositories Checked",
+                      "value": $repo_count
+                    },
+                    {
+                      "name": "💻 Commits Found",
+                      "value": $commit_count
+                    },
+                    {
+                      "name": "⏰ Time Period",
+                      "value": $time_period
+                    }
+                  ],
+                  "text": $summary
+                }
+              ],
+              "potentialAction": [
+                {
+                  "@type": "OpenUri",
+                  "name": "🔍 View Repository",
+                  "targets": [
+                    {
+                      "os": "default",
+                      "uri": "https://github.com"
+                    }
+                  ]
+                }
+              ]
+            }')
+
+          # Send with retries and exponential backoff
+          MAX_RETRIES=3
+          RETRY_DELAY=2
+
+          # Log webhook attempt
+          echo "📤 Attempting to send webhook to Teams..."
 
           for i in $(seq 1 $MAX_RETRIES); do
             # Security: Send request without exposing URL in logs
@@ -458,14 +458,14 @@ jobs:
             fi
           done
 
-                     # Security: Fail without exposing webhook details
-           echo "❌ Failed to send webhook after $MAX_RETRIES attempts"
-           echo "Please verify your WEBHOOK_URL secret is correctly configured"
-           echo "Common issues:"
-           echo "- Webhook URL is invalid or expired"
-           echo "- Teams channel permissions are incorrect"
-           echo "- Network connectivity issues"
-           exit 1
+          # Security: Fail without exposing webhook details
+          echo "❌ Failed to send webhook after $MAX_RETRIES attempts"
+          echo "Please verify your WEBHOOK_URL secret is correctly configured"
+          echo "Common issues:"
+          echo "- Webhook URL is invalid or expired"
+          echo "- Teams channel permissions are incorrect"
+          echo "- Network connectivity issues"
+          exit 1
 
       - name: Job summary
         if: always()
@@ -481,15 +481,15 @@ jobs:
             echo "**Repositories checked:** ${{ steps.summary.outputs.REPO_COUNT }}" >> $GITHUB_STEP_SUMMARY
             echo "**Commits found:** ${{ steps.summary.outputs.COMMIT_COUNT }}" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
-                       # Security: Only show the generated summary, no API responses or keys
-           SAFE_SUMMARY="${{ steps.summary.outputs.SUMMARY }}"
-           # Additional sanitization: Remove any potential leaked keys
-           SAFE_SUMMARY=$(echo "$SAFE_SUMMARY" | sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | sed 's/[a-fA-F0-9]{32,}/**KEY**/g')
-           
-           # Add production status indicators
-           echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
-           echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
-           echo "**Webhook Format:** Microsoft Teams MessageCard" >> $GITHUB_STEP_SUMMARY
+            # Security: Only show the generated summary, no API responses or keys
+            SAFE_SUMMARY="${{ steps.summary.outputs.SUMMARY }}"
+            # Additional sanitization: Remove any potential leaked keys
+            SAFE_SUMMARY=$(echo "$SAFE_SUMMARY" | sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | sed 's/[a-fA-F0-9]{32,}/**KEY**/g')
+            
+            # Add production status indicators
+            echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
+            echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
+            echo "**Webhook Format:** Microsoft Teams MessageCard" >> $GITHUB_STEP_SUMMARY
             echo "$SAFE_SUMMARY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
