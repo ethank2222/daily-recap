@@ -474,105 +474,162 @@ jobs:
             fi
           fi
 
-          # Create AdaptiveCard format for Teams Webhook
+          # Create payload for Teams
           CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
           WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-}"
 
           # Escape the summary for JSON
           ESCAPED_SUMMARY=$(echo "$SUMMARY" | jq -Rs .)
 
-          # Create payload matching exact Teams Webhook schema
-          PAYLOAD=$(jq -n \
-            --arg title "$TITLE" \
-            --arg time "$CURRENT_TIME" \
-            --arg repos "$REPO_COUNT" \
-            --arg commits "$COMMIT_COUNT" \
-            --arg period "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")" \
-            --argjson summary "$ESCAPED_SUMMARY" \
-            --arg url "$WORKFLOW_URL" \
-            '{
-              type: "message",
-              attachments: [{
-                contentType: "application/vnd.microsoft.card.adaptive",
-                content: {
-                  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                  type: "AdaptiveCard",
-                  version: "1.3",
-                  body: [
-                    {
-                      type: "Container",
-                      style: "emphasis",
-                      bleed: true,
-                      items: [
-                        {
-                          type: "TextBlock",
-                          text: $title,
-                          size: "Large",
-                          weight: "Bolder",
-                          color: "Accent",
-                          wrap: true
-                        },
-                        {
-                          type: "TextBlock",
-                          text: $time,
-                          size: "Small",
-                          color: "Default",
-                          spacing: "None",
-                          wrap: true
-                        }
-                      ]
-                    },
-                    {
-                      type: "FactSet",
-                      facts: [
-                        {
-                          title: "📚 Repositories Checked",
-                          value: $repos
-                        },
-                        {
-                          title: "💻 Commits Found",
-                          value: $commits
-                        },
-                        {
-                          title: "📅 Time Period",
-                          value: $period
-                        }
-                      ],
-                      spacing: "Medium"
-                    },
-                    {
-                      type: "Container",
-                      style: "default",
-                      items: [
-                        {
-                          type: "TextBlock",
-                          text: "**Summary of Work Completed**",
-                          size: "Medium",
-                          weight: "Bolder",
-                          color: "Default",
-                          spacing: "Medium",
-                          wrap: true
-                        },
-                        {
-                          type: "TextBlock",
-                          text: $summary,
-                          wrap: true,
-                          spacing: "Small"
-                        }
-                      ]
-                    }
-                  ],
-                  actions: [
-                    {
-                      type: "Action.OpenUrl",
-                      title: "🔍 View Workflow Run",
-                      url: $url,
-                      style: "positive"
-                    }
-                  ]
-                }
-              }]
-            }')
+          # Detect webhook type based on URL
+          if echo "$WEBHOOK_URL" | grep -q "webhook.office.com/webhookb2"; then
+            echo "📋 Detected native Teams Incoming Webhook"
+            # Native Teams Incoming Webhook - uses simpler format
+            PAYLOAD=$(jq -n \
+              --arg title "$TITLE" \
+              --arg time "$CURRENT_TIME" \
+              --arg repos "$REPO_COUNT" \
+              --arg commits "$COMMIT_COUNT" \
+              --arg period "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")" \
+              --argjson summary "$ESCAPED_SUMMARY" \
+              --arg url "$WORKFLOW_URL" \
+              '{
+                "@type": "MessageCard",
+                "@context": "https://schema.org/extensions",
+                "themeColor": "0078D4",
+                "title": $title,
+                "summary": ("Commits: " + $commits + " | Repos: " + $repos),
+                "sections": [
+                  {
+                    "activityTitle": $time,
+                    "facts": [
+                      {
+                        "name": "📚 Repositories Checked",
+                        "value": $repos
+                      },
+                      {
+                        "name": "💻 Commits Found",
+                        "value": $commits
+                      },
+                      {
+                        "name": "📅 Time Period",
+                        "value": $period
+                      }
+                    ]
+                  },
+                  {
+                    "title": "**Summary of Work Completed**",
+                    "text": $summary
+                  }
+                ],
+                "potentialAction": [
+                  {
+                    "@type": "OpenUri",
+                    "name": "🔍 View Workflow Run",
+                    "targets": [
+                      {
+                        "os": "default",
+                        "uri": $url
+                      }
+                    ]
+                  }
+                ]
+              }')
+          else
+            echo "📋 Using Power Automate/Teams Webhook format"
+            # Power Automate or other webhook - use AdaptiveCard format
+            PAYLOAD=$(jq -n \
+              --arg title "$TITLE" \
+              --arg time "$CURRENT_TIME" \
+              --arg repos "$REPO_COUNT" \
+              --arg commits "$COMMIT_COUNT" \
+              --arg period "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")" \
+              --argjson summary "$ESCAPED_SUMMARY" \
+              --arg url "$WORKFLOW_URL" \
+              '{
+                type: "message",
+                attachments: [{
+                  contentType: "application/vnd.microsoft.card.adaptive",
+                  content: {
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    type: "AdaptiveCard",
+                    version: "1.3",
+                    body: [
+                      {
+                        type: "Container",
+                        style: "emphasis",
+                        bleed: true,
+                        items: [
+                          {
+                            type: "TextBlock",
+                            text: $title,
+                            size: "Large",
+                            weight: "Bolder",
+                            color: "Accent",
+                            wrap: true
+                          },
+                          {
+                            type: "TextBlock",
+                            text: $time,
+                            size: "Small",
+                            color: "Default",
+                            spacing: "None",
+                            wrap: true
+                          }
+                        ]
+                      },
+                      {
+                        type: "FactSet",
+                        facts: [
+                          {
+                            title: "📚 Repositories Checked",
+                            value: $repos
+                          },
+                          {
+                            title: "💻 Commits Found",
+                            value: $commits
+                          },
+                          {
+                            title: "📅 Time Period",
+                            value: $period
+                          }
+                        ],
+                        spacing: "Medium"
+                      },
+                      {
+                        type: "Container",
+                        style: "default",
+                        items: [
+                          {
+                            type: "TextBlock",
+                            text: "**Summary of Work Completed**",
+                            size: "Medium",
+                            weight: "Bolder",
+                            color: "Default",
+                            spacing: "Medium",
+                            wrap: true
+                          },
+                          {
+                            type: "TextBlock",
+                            text: $summary,
+                            wrap: true,
+                            spacing: "Small"
+                          }
+                        ]
+                      }
+                    ],
+                    actions: [
+                      {
+                        type: "Action.OpenUrl",
+                        title: "🔍 View Workflow Run",
+                        url: $url,
+                        style: "positive"
+                      }
+                    ]
+                  }
+                }]
+              }')
+          fi
 
           # Send with retries and exponential backoff
           MAX_RETRIES=3
