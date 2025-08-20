@@ -7,701 +7,726 @@ name: Daily Commit Summary
 # Error messages are sanitized to prevent key leakage
 
 on:
-  schedule:
-    # Runs at 8:45 AM PT (15:45 UTC) Monday-Friday
-    - cron: "45 15 * * 1-5"
-  workflow_dispatch: # Allow manual triggering for testing
+    schedule:
+        # Runs at 8:45 AM PT (15:45 UTC) Monday-Friday
+        - cron: "45 15 * * 1-5"
+    workflow_dispatch: # Allow manual triggering for testing
 
 jobs:
-  summarize:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10 # Prevent hanging jobs
+    summarize:
+        runs-on: ubuntu-latest
+        timeout-minutes: 10 # Prevent hanging jobs
 
-    # Security: Disable debug logging to prevent secret exposure
-    env:
-      ACTIONS_STEP_DEBUG: false
-      ACTIONS_RUNNER_DEBUG: false
-
-    steps:
-      - name: Security initialization
-        run: |
-          # Security: Mask common key patterns if they appear anywhere
-          echo "::add-mask::sk-"
-          echo "::add-mask::api-"
-          echo "::add-mask::key-"
-          echo "::add-mask::token-"
-          echo "::add-mask::bearer"
-          echo "::add-mask::webhook"
-          echo "✅ Security masks initialized"
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0 # Fetch all history for accurate log
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y curl jq
-
-      - name: Generate commit summary
-        id: summary
+        # Security: Disable debug logging to prevent secret exposure
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
-        run: |
-          set -euo pipefail
+            ACTIONS_STEP_DEBUG: false
+            ACTIONS_RUNNER_DEBUG: false
 
-          # Security: Mask any potential leaks
-          if [ -n "${OPENAI_API_KEY:-}" ]; then
-            echo "::add-mask::${OPENAI_API_KEY}"
-          fi
+        steps:
+            - name: Security initialization
+              run: |
+                  # Security: Mask common key patterns if they appear anywhere
+                  echo "::add-mask::sk-"
+                  echo "::add-mask::api-"
+                  echo "::add-mask::key-"
+                  echo "::add-mask::token-"
+                  echo "::add-mask::bearer"
+                  echo "::add-mask::webhook"
+                  echo "✅ Security masks initialized"
 
-          # Validate API key is present (never echo the actual key)
-          if [ -z "${OPENAI_API_KEY:-}" ]; then
-            echo "❌ Error: OPENAI_API_KEY secret is not configured"
-            echo "Please add your OpenAI API key to repository secrets:"
-            echo "1. Go to Settings → Secrets and variables → Actions"
-            echo "2. Click 'New repository secret'"
-            echo "3. Name: OPENAI_API_KEY"
-            echo "4. Value: Your OpenAI API key"
-            exit 1
-          fi
+            - name: Checkout repository
+              uses: actions/checkout@v4
+              with:
+                  fetch-depth: 0 # Fetch all history for accurate log
 
-          # Security check: Validate key format without exposing it
-          KEY_LENGTH=${#OPENAI_API_KEY}
-          if [ $KEY_LENGTH -lt 10 ]; then
-            echo "❌ Error: OPENAI_API_KEY appears to be invalid (too short)"
-            exit 1
-          fi
-          echo "✅ API key validated (length: $KEY_LENGTH characters)"
+            - name: Install dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y curl jq
 
-          # ---- Time window setup (Pacific Time) ----
-          # Set timezone to Pacific
-          export TZ="America/Los_Angeles"
+            - name: Generate commit summary
+              id: summary
+              env:
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
+              run: |
+                  set -euo pipefail
 
-          TODAY=$(date +%u)  # weekday number (1=Mon ... 7=Sun)
+                  # Security: Mask any potential leaks
+                  if [ -n "${OPENAI_API_KEY:-}" ]; then
+                    echo "::add-mask::${OPENAI_API_KEY}"
+                  fi
 
-          # Handle Monday (include weekend commits) - Extended time window for better coverage
-          if [ "$TODAY" -eq 1 ]; then
-            START=$(date -d "7 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
-          else
-            START=$(date -d "3 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
-          fi
+                  # Validate API key is present (never echo the actual key)
+                  if [ -z "${OPENAI_API_KEY:-}" ]; then
+                    echo "❌ Error: OPENAI_API_KEY secret is not configured"
+                    echo "Please add your OpenAI API key to repository secrets:"
+                    echo "1. Go to Settings → Secrets and variables → Actions"
+                    echo "2. Click 'New repository secret'"
+                    echo "3. Name: OPENAI_API_KEY"
+                    echo "4. Value: Your OpenAI API key"
+                    exit 1
+                  fi
 
-          END=$(date -d "tomorrow 00:00" +"%Y-%m-%d %H:%M:%S")
+                  # Security check: Validate key format without exposing it
+                  KEY_LENGTH=${#OPENAI_API_KEY}
+                  if [ $KEY_LENGTH -lt 10 ]; then
+                    echo "❌ Error: OPENAI_API_KEY appears to be invalid (too short)"
+                    exit 1
+                  fi
+                  echo "✅ API key validated (length: $KEY_LENGTH characters)"
 
-          echo "🔍 Debug: Extended time window for better coverage"
+                  # ---- Time window setup (Pacific Time) ----
+                  # Set timezone to Pacific
+                  export TZ="America/Los_Angeles"
 
-          echo "📅 Collecting commits between $START and $END (Pacific Time)"
+                  TODAY=$(date +%u)  # weekday number (1=Mon ... 7=Sun)
 
-          # ---- Collect commits from all repositories ----
-          echo "🔍 Fetching commits from all repositories..."
+                  # Handle Monday (include weekend commits) - Extended time window for better coverage
+                  if [ "$TODAY" -eq 1 ]; then
+                    START=$(date -d "7 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
+                  else
+                    START=$(date -d "3 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
+                  fi
 
-          # Convert dates to ISO format for GitHub API (Pacific to UTC)
-          # Fix: Properly convert Pacific time to UTC
-          START_ISO=$(TZ="America/Los_Angeles" date -d "$START" +"%Y-%m-%dT%H:%M:%SZ")
-          END_ISO=$(TZ="America/Los_Angeles" date -d "$END" +"%Y-%m-%dT%H:%M:%SZ")
+                  END=$(date -d "tomorrow 00:00" +"%Y-%m-%d %H:%M:%S")
 
-          echo "🔍 Debug: Time window for GitHub API:"
-          echo "  Start (UTC): $START_ISO"
-          echo "  End (UTC): $END_ISO"
+                  echo "🔍 Debug: Extended time window for better coverage"
 
-          # Get all repositories the user has access to (increased limit)
-          echo "🔍 Fetching repositories from GitHub API..."
-          REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/user/repos?sort=updated&per_page=200&affiliation=owner,collaborator,organization_member" || echo '[]')
+                  echo "📅 Collecting commits between $START and $END (Pacific Time)"
 
-          # Debug: Check API response for errors
-          if echo "$REPOS_RESPONSE" | jq -e 'has("message")' >/dev/null 2>&1; then
-            ERROR_MSG=$(echo "$REPOS_RESPONSE" | jq -r '.message // "Unknown error"' 2>/dev/null)
-            echo "❌ GitHub API Error: $ERROR_MSG"
-            echo "🔍 This might be due to:"
-            echo "   - Invalid GITHUB_TOKEN"
-            echo "   - Rate limiting"
-            echo "   - Insufficient permissions"
-            exit 1
-          fi
+                  # ---- Collect commits from all repositories ----
+                  echo "🔍 Fetching commits from all repositories..."
 
-          # Debug: Check if we got a valid response
-          if [ "$REPOS_RESPONSE" = "[]" ]; then
-            echo "❌ Error: No repositories returned from GitHub API"
-            echo "This could be due to:"
-            echo "- Invalid GITHUB_TOKEN"
-            echo "- No repository access"
-            echo "- API rate limiting"
-            exit 1
-          fi
+                  # Convert dates to ISO format for GitHub API (Pacific to UTC)
+                  # Fix: Properly convert Pacific time to UTC
+                  START_ISO=$(TZ="America/Los_Angeles" date -d "$START" +"%Y-%m-%dT%H:%M:%SZ")
+                  END_ISO=$(TZ="America/Los_Angeles" date -d "$END" +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Extract repository names
-          REPOS=$(echo "$REPOS_RESPONSE" | jq -r '.[].full_name' 2>/dev/null || echo "")
+                  echo "🔍 Debug: Time window for GitHub API:"
+                  echo "  Start (UTC): $START_ISO"
+                  echo "  End (UTC): $END_ISO"
 
-          # Debug: Show what we found
-          echo "📋 Raw repository response count: $(echo "$REPOS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")"
-          echo "📋 Extracted repository names count: $(echo "$REPOS" | wc -l)"
+                  # Get all repositories the user has access to (increased limit)
+                  echo "🔍 Fetching repositories from GitHub API..."
+                  REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/user/repos?sort=updated&per_page=200&affiliation=owner,collaborator,organization_member" || echo '[]')
 
-          # Show first few repositories for debugging
-          echo "📋 First 5 repositories found:"
-          echo "$REPOS" | head -5 | while read -r repo; do
-            if [ -n "$repo" ]; then
-              echo "   - $repo"
-            fi
-          done
+                  # Debug: Check API response for errors
+                  if echo "$REPOS_RESPONSE" | jq -e 'has("message")' >/dev/null 2>&1; then
+                    ERROR_MSG=$(echo "$REPOS_RESPONSE" | jq -r '.message // "Unknown error"' 2>/dev/null)
+                    echo "❌ GitHub API Error: $ERROR_MSG"
+                    echo "🔍 This might be due to:"
+                    echo "   - Invalid GITHUB_TOKEN"
+                    echo "   - Rate limiting"
+                    echo "   - Insufficient permissions"
+                    exit 1
+                  fi
 
-          # Show total count and verify we have repositories
-          TOTAL_REPO_COUNT=$(echo "$REPOS" | wc -l)
-          echo "📋 Total repositories to process: $TOTAL_REPO_COUNT"
+                  # Debug: Check if we got a valid response
+                  if [ "$REPOS_RESPONSE" = "[]" ]; then
+                    echo "❌ Error: No repositories returned from GitHub API"
+                    echo "This could be due to:"
+                    echo "- Invalid GITHUB_TOKEN"
+                    echo "- No repository access"
+                    echo "- API rate limiting"
+                    exit 1
+                  fi
 
-          if [ "$TOTAL_REPO_COUNT" -eq 0 ]; then
-            echo "❌ Error: No repositories found to process"
-            exit 1
-          fi
+                  # Extract repository names
+                  REPOS=$(echo "$REPOS_RESPONSE" | jq -r '.[].full_name' 2>/dev/null || echo "")
 
-          if [ -z "$REPOS" ]; then
-            echo "⚠️ Could not fetch repositories. Falling back to current repo only."
-            # Fallback to current repository
-            COMMITS=$(git log --since="$START" --until="$END" \
-              --pretty=format:"• %h by %an: %s" \
-              --no-merges || true)
-            COMMIT_COUNT=$(git log --since="$START" --until="$END" \
-              --pretty=format:"%h" --no-merges | wc -l || echo "0")
-          else
-            echo "📚 Found $(echo "$REPOS" | wc -l) repositories to check"
-            
-            ALL_COMMITS=""
-            TOTAL_COMMITS=0
-            REPO_COUNT=0
+                  # Debug: Show what we found
+                  echo "📋 Raw repository response count: $(echo "$REPOS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")"
+                  echo "📋 Extracted repository names count: $(echo "$REPOS" | wc -l)"
 
-            # Iterate through each repository
-            echo "🔄 Starting repository iteration..."
-            REPO_INDEX=0
-            while IFS= read -r repo; do
-              if [ -n "$repo" ]; then
-                REPO_INDEX=$((REPO_INDEX + 1))
-                echo "🔍 Checking repository $REPO_INDEX: $repo"
-                
-                # Get all branches for this repository first
-                echo "  🌿 Fetching all branches for $repo..."
-                BRANCHES_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/repos/$repo/branches?per_page=100" || echo '[]')
-                
-                # Extract branch names
-                BRANCHES=$(echo "$BRANCHES_RESPONSE" | jq -r '.[].name' 2>/dev/null || echo "")
-                BRANCH_COUNT=$(echo "$BRANCHES" | wc -l)
-                echo "  📋 Found $BRANCH_COUNT branches in $repo"
-                
-                # Initialize repository commits array
-                REPO_ALL_COMMITS_ARRAY="[]"
-                REPO_COMMIT_COUNT=0
-                
-                # Get commits from each branch
-                if [ -n "$BRANCHES" ]; then
-                  while IFS= read -r branch; do
-                    if [ -n "$branch" ]; then
-                      echo "    🔍 Checking branch: $branch"
+                  # Show first few repositories for debugging
+                  echo "📋 First 5 repositories found:"
+                  echo "$REPOS" | head -5 | while read -r repo; do
+                    if [ -n "$repo" ]; then
+                      echo "   - $repo"
+                    fi
+                  done
+
+                  # Show total count and verify we have repositories
+                  TOTAL_REPO_COUNT=$(echo "$REPOS" | wc -l)
+                  echo "📋 Total repositories to process: $TOTAL_REPO_COUNT"
+
+                  if [ "$TOTAL_REPO_COUNT" -eq 0 ]; then
+                    echo "❌ Error: No repositories found to process"
+                    exit 1
+                  fi
+
+                  if [ -z "$REPOS" ]; then
+                    echo "⚠️ Could not fetch repositories. Falling back to current repo only."
+                    # Fallback to current repository
+                    COMMITS=$(git log --since="$START" --until="$END" \
+                      --pretty=format:"• %h by %an: %s" \
+                      --no-merges || true)
+                    COMMIT_COUNT=$(git log --since="$START" --until="$END" \
+                      --pretty=format:"%h" --no-merges | wc -l || echo "0")
+                  else
+                    echo "📚 Found $(echo "$REPOS" | wc -l) repositories to check"
+                    
+                    ALL_COMMITS=""
+                    TOTAL_COMMITS=0
+                    REPO_COUNT=0
+
+                    # Iterate through each repository
+                    echo "🔄 Starting repository iteration..."
+                    REPO_INDEX=0
+                    while IFS= read -r repo; do
+                      if [ -n "$repo" ]; then
+                        REPO_INDEX=$((REPO_INDEX + 1))
+                        echo "🔍 Checking repository $REPO_INDEX: $repo"
+                        
+                        # Get all branches for this repository first
+                        echo "  🌿 Fetching all branches for $repo..."
+                        BRANCHES_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                          -H "Accept: application/vnd.github.v3+json" \
+                          "https://api.github.com/repos/$repo/branches?per_page=100" || echo '[]')
+                        
+                        # Extract branch names
+                        BRANCHES=$(echo "$BRANCHES_RESPONSE" | jq -r '.[].name' 2>/dev/null || echo "")
+                        BRANCH_COUNT=$(echo "$BRANCHES" | wc -l)
+                        echo "  📋 Found $BRANCH_COUNT branches in $repo"
+                        
+                        # Initialize repository commits array
+                        REPO_ALL_COMMITS_ARRAY="[]"
+                        REPO_COMMIT_COUNT=0
+                        
+                        # Get commits from each branch
+                        if [ -n "$BRANCHES" ]; then
+                          while IFS= read -r branch; do
+                            if [ -n "$branch" ]; then
+                              echo "    🔍 Checking branch: $branch"
+                              
+                              # Get commits for this specific branch
+                              BRANCH_COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                                -H "Accept: application/vnd.github.v3+json" \
+                                "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100&sha=$branch" || echo '[]')
+                              
+                              # Count commits in this branch
+                              BRANCH_COMMIT_COUNT=$(echo "$BRANCH_COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
+                              echo "      📝 Found $BRANCH_COMMIT_COUNT commits in branch $branch"
+                              
+                              # Merge branch commits into repository array (avoid duplicates by SHA)
+                              if [ "$BRANCH_COMMIT_COUNT" -gt 0 ]; then
+                                REPO_ALL_COMMITS_ARRAY=$(echo "$REPO_ALL_COMMITS_ARRAY" | jq --argjson branch_commits "$BRANCH_COMMITS_RESPONSE" '. + $branch_commits | unique_by(.sha)' 2>/dev/null || echo "$REPO_ALL_COMMITS_ARRAY")
+                                REPO_COMMIT_COUNT=$(echo "$REPO_ALL_COMMITS_ARRAY" | jq 'length' 2>/dev/null || echo "0")
+                              fi
+                            fi
+                          done <<< "$BRANCHES"
+                        fi
+                        
+                        # Use the combined commits from all branches
+                        COMMITS_RESPONSE="$REPO_ALL_COMMITS_ARRAY"
+                        
+                        # Debug: Check if we found any commits
+                        if [ "$REPO_COMMIT_COUNT" -eq 0 ]; then
+                          echo "  ⚠️ No commits found in any branch for $repo"
+                        else
+                          echo "  ✅ Found $REPO_COMMIT_COUNT total commits across all branches"
+                        fi
+                        
+                        # Set specific username for filtering (ethank2222)
+                        CURRENT_USER="ethank2222"
+                        
+                        # Debug: Show all commits found (before filtering)
+                        TOTAL_COMMITS_IN_REPO=$(echo "$COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
+                        echo "  📊 Total commits in repo: $TOTAL_COMMITS_IN_REPO"
+                        
+                        # Show first few commits for debugging
+                        echo "  📋 First 3 commits (all authors):"
+                        echo "$COMMITS_RESPONSE" | jq -r '.[0:3] | .[] | "    - \(.sha[0:7]) by \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "    No commits found"
+                        
+                        # Extract commit information, filtering to only ethank2222's commits (check both author and committer)
+                        REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user or .committer.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
+                        
+                        # Count only ethank2222's commits (check both author and committer)
+                        REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user or .committer.login == $user)] | length' 2>/dev/null || echo "0")
+                        
+                        # Always show repository status, even if no commits
+                        echo "  📝 Found $REPO_COMMIT_COUNT of your commits in $repo"
+                        
+                        # Add repository header and commits (or no commits message)
+                        if [ -n "$REPO_COMMITS" ] && [ "$REPO_COMMIT_COUNT" -gt 0 ]; then
+                          ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** ($REPO_COMMIT_COUNT commits):\n$REPO_COMMITS"
+                          TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
+                        else
+                          ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** (0 commits):\n• No commits in this period"
+                        fi
+                        
+                        # Always increment repo count since we're checking every repo
+                        REPO_COUNT=$((REPO_COUNT + 1))
+                      fi
+                    done <<< "$REPOS"
+
+                    echo "✅ Repository iteration complete. Processed $REPO_INDEX repositories."
+                    
+                    # Verify we processed all repositories
+                    if [ "$REPO_INDEX" -ne "$TOTAL_REPO_COUNT" ]; then
+                      echo "⚠️ Warning: Expected to process $TOTAL_REPO_COUNT repositories but only processed $REPO_INDEX"
+                    else
+                      echo "✅ Successfully processed all $TOTAL_REPO_COUNT repositories"
+                    fi
+                    
+                    COMMITS="$ALL_COMMITS"
+                    COMMIT_COUNT=$TOTAL_COMMITS
+                    
+                    echo "📊 Total: $COMMIT_COUNT commits across $REPO_COUNT repositories"
+                  fi
+
+                  if [ -z "$COMMITS" ] || [ "$COMMIT_COUNT" -eq 0 ]; then
+                    echo "ℹ️ No commits found for previous workday, but will still send webhook."
+                    COMMITS="No commits found in the specified period."
+                    COMMIT_COUNT=0
+                  else
+                    echo "Found $COMMIT_COUNT commits to summarize"
+                  fi
+
+                  # ---- Prepare OpenAI API request ----
+                  # Security: Never echo REQUEST_BODY as it might be logged
+
+                  if [ "$COMMIT_COUNT" -eq 0 ]; then
+                    # No commits found - create a simple message
+                    REQUEST_BODY=$(jq -n \
+                      --arg start "$START" \
+                      --arg end "$END" \
+                      '{
+                        model: "gpt-4o-mini",
+                        max_tokens: 100,
+                        temperature: 0.3,
+                        messages: [{
+                          role: "user",
+                          content: ($start + " to " + $end + ": No commits found. Return: 📁 No repositories with commits in this period")
+                        }]
+                      }')
+                  else
+                    # Commits found - analyze them
+                    REQUEST_BODY=$(jq -n \
+                      --arg commits "$COMMITS" \
+                      --arg start "$START" \
+                      --arg end "$END" \
+                      --arg count "$COMMIT_COUNT" \
+                      '{
+                        model: "gpt-4o-mini",
+                        max_tokens: 300,
+                        temperature: 0.3,
+                        messages: [{
+                          role: "user",
+                          content: ("Analyze these " + $count + " git commits and create a concise daily summary focusing on the actual functionality implemented.\n\nRepository Activity:\n" + $commits + "\n\nANALYSIS REQUIREMENTS:\n- Look beyond file names and commit messages\n- Identify the core functionality being implemented\n- Focus on user-facing features, business logic, and system improvements\n- Group related changes by functionality\n- Describe what the code actually does, not what files were changed\n\nEXAMPLES OF GOOD DESCRIPTIONS:\n• '"'"'User authentication system'"'"' (not '"'"'Updated auth.js'"'"')\n• '"'"'Database connection pooling'"'"' (not '"'"'Modified db config'"'"')\n• '"'"'Real-time notifications'"'"' (not '"'"'Added socket.io'"'"')\n• '"'"'API rate limiting'"'"' (not '"'"'Updated middleware'"'"')\n• '"'"'Data validation rules'"'"' (not '"'"'Fixed validation.js'"'"')\n\nREQUIRED MARKDOWN FORMAT:\n📁 Repo Name (X commits):\n• Core functionality implemented\n• System improvement made\n\n📁 Another Repo (Y commits):\n• Feature enhancement\n\nIMPORTANT: Use bullet points (•) for each item. Each bullet point should be on its own line with proper line breaks. Do not combine multiple items into a single paragraph.\n\nGenerate the summary:")
+                        }]
+                      }')
+                  fi
+
+                  echo "📝 Prepared API request for $COMMIT_COUNT commits"
+
+                  # ---- Call OpenAI API with exponential backoff ----
+                  MAX_RETRIES=3
+                  RETRY_DELAY=2
+
+                  for i in $(seq 1 $MAX_RETRIES); do
+                    echo "Calling OpenAI API (attempt $i/$MAX_RETRIES)..."
+                    
+                    # Security: Never log the actual request or response that might contain keys
+                    RESPONSE=$(curl -s -S --max-time 30 \
+                      https://api.openai.com/v1/chat/completions \
+                      -H "Authorization: Bearer $OPENAI_API_KEY" \
+                      -H "Content-Type: application/json" \
+                      -d "$REQUEST_BODY" 2>/dev/null || echo '{"error": "curl failed"}')
+                    
+                    # Security: Don't echo raw response which might contain sensitive data
+                    # Check for rate limit without exposing response
+                    if echo "$RESPONSE" | grep -q "rate_limit\|quota_exceeded" 2>/dev/null; then
+                      echo "⚠️ Rate limited or quota exceeded. Waiting ${RETRY_DELAY}s..."
+                      sleep $RETRY_DELAY
+                      RETRY_DELAY=$((RETRY_DELAY * 2))
+                      continue
+                    fi
+                    
+                    # Check for authentication errors
+                    if echo "$RESPONSE" | grep -q "invalid_api_key\|authentication" 2>/dev/null; then
+                      echo "❌ Authentication failed. Please check your OPENAI_API_KEY secret."
+                      exit 1
+                    fi
+                    
+                    # Extract summary from response (safe to display)
+                    SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
+                    
+                    if [ -n "$SUMMARY" ]; then
+                      echo "✅ Successfully generated summary"
                       
-                      # Get commits for this specific branch
-                      BRANCH_COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                        -H "Accept: application/vnd.github.v3+json" \
-                        "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100&sha=$branch" || echo '[]')
+                      # Post-process summary to ensure proper bullet point formatting
+                      echo "🔧 Post-processing summary for proper markdown formatting..."
                       
-                      # Count commits in this branch
-                      BRANCH_COMMIT_COUNT=$(echo "$BRANCH_COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
-                      echo "      📝 Found $BRANCH_COMMIT_COUNT commits in branch $branch"
+                      # Convert any dash (-) to bullet points (•) if they're not already
+                      SUMMARY=$(echo "$SUMMARY" | sed 's/^[[:space:]]*-[[:space:]]/• /g')
                       
-                      # Merge branch commits into repository array (avoid duplicates by SHA)
-                      if [ "$BRANCH_COMMIT_COUNT" -gt 0 ]; then
-                        REPO_ALL_COMMITS_ARRAY=$(echo "$REPO_ALL_COMMITS_ARRAY" | jq --argjson branch_commits "$BRANCH_COMMITS_RESPONSE" '. + $branch_commits | unique_by(.sha)' 2>/dev/null || echo "$REPO_ALL_COMMITS_ARRAY")
-                        REPO_COMMIT_COUNT=$(echo "$REPO_ALL_COMMITS_ARRAY" | jq 'length' 2>/dev/null || echo "0")
+                      # Ensure bullet points are properly formatted
+                      SUMMARY=$(echo "$SUMMARY" | sed 's/^[[:space:]]*•[[:space:]]*/• /g')
+                      
+                      # Add line breaks between sections if missing
+                      SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n📁/g')
+                      
+                      # Remove any extra blank lines
+                      SUMMARY=$(echo "$SUMMARY" | sed '/^[[:space:]]*$/d' | sed 's/\n\n\n/\n\n/g')
+                      
+                      echo "✅ Summary formatting complete"
+                      break
+                    fi
+                    
+                    # Security: Extract error message but sanitize it
+                    ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .error // "Unknown error"' 2>/dev/null | \
+                      sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | \
+                      sed 's/[a-zA-Z0-9]{32,}/**KEY**/g')
+                    echo "⚠️ API call failed: ${ERROR:0:100}"  # Truncate error message
+                    
+                    # Log response status for debugging (without sensitive data)
+                    HTTP_STATUS=$(echo "$RESPONSE" | jq -r '.error.status // "unknown"' 2>/dev/null)
+                    if [ "$HTTP_STATUS" != "null" ] && [ "$HTTP_STATUS" != "unknown" ]; then
+                      echo "📊 HTTP Status: $HTTP_STATUS"
+                    fi
+                    
+                    if [ $i -lt $MAX_RETRIES ]; then
+                      echo "Retrying in ${RETRY_DELAY}s..."
+                      sleep $RETRY_DELAY
+                      RETRY_DELAY=$((RETRY_DELAY * 2))
+                    fi
+                  done
+
+                  # Fallback if API fails
+                  if [ -z "$SUMMARY" ]; then
+                    echo "⚠️ Using fallback summary"
+                    # Handle case where REPO_COUNT might not be defined (fallback scenario)
+                    REPO_COUNT_DISPLAY=${REPO_COUNT:-1}
+                    
+                    if [ "$COMMIT_COUNT" -eq 0 ]; then
+                      if [ "$TODAY" -eq 1 ]; then
+                        SUMMARY="📁 No repositories with commits over the weekend"
+                      else
+                        SUMMARY="📁 No repositories with commits yesterday"
+                      fi
+                    else
+                      if [ "$TODAY" -eq 1 ]; then
+                        SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories over the weekend"
+                      else
+                        SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories yesterday"
                       fi
                     fi
-                  done <<< "$BRANCHES"
-                fi
-                
-                # Use the combined commits from all branches
-                COMMITS_RESPONSE="$REPO_ALL_COMMITS_ARRAY"
-                
-                # Debug: Check if we found any commits
-                if [ "$REPO_COMMIT_COUNT" -eq 0 ]; then
-                  echo "  ⚠️ No commits found in any branch for $repo"
-                else
-                  echo "  ✅ Found $REPO_COMMIT_COUNT total commits across all branches"
-                fi
-                
-                # Set specific username for filtering (ethank2222)
-                CURRENT_USER="ethank2222"
-                
-                # Debug: Show all commits found (before filtering)
-                TOTAL_COMMITS_IN_REPO=$(echo "$COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
-                echo "  📊 Total commits in repo: $TOTAL_COMMITS_IN_REPO"
-                
-                # Show first few commits for debugging
-                echo "  📋 First 3 commits (all authors):"
-                echo "$COMMITS_RESPONSE" | jq -r '.[0:3] | .[] | "    - \(.sha[0:7]) by \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "    No commits found"
-                
-                # Extract commit information, filtering to only ethank2222's commits (check both author and committer)
-                REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user or .committer.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
-                
-                # Count only ethank2222's commits (check both author and committer)
-                REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user or .committer.login == $user)] | length' 2>/dev/null || echo "0")
-                
-                # Always show repository status, even if no commits
-                echo "  📝 Found $REPO_COMMIT_COUNT of your commits in $repo"
-                
-                # Add repository header and commits (or no commits message)
-                if [ -n "$REPO_COMMITS" ] && [ "$REPO_COMMIT_COUNT" -gt 0 ]; then
-                  ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** ($REPO_COMMIT_COUNT commits):\n$REPO_COMMITS"
-                  TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
-                else
-                  ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** (0 commits):\n• No commits in this period"
-                fi
-                
-                # Always increment repo count since we're checking every repo
-                REPO_COUNT=$((REPO_COUNT + 1))
-              fi
-            done <<< "$REPOS"
+                    
+                    # Apply the same post-processing to fallback summary
+                    echo "🔧 Post-processing fallback summary for proper markdown formatting..."
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/^[[:space:]]*-[[:space:]]/• /g')
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/^[[:space:]]*•[[:space:]]*/• /g')
+                    SUMMARY=$(echo "$SUMMARY" | sed 's/📁/\n📁/g')
+                    SUMMARY=$(echo "$SUMMARY" | sed '/^[[:space:]]*$/d' | sed 's/\n\n\n/\n\n/g')
+                    echo "✅ Fallback summary formatting complete"
+                  fi
 
-            echo "✅ Repository iteration complete. Processed $REPO_INDEX repositories."
-            
-            # Verify we processed all repositories
-            if [ "$REPO_INDEX" -ne "$TOTAL_REPO_COUNT" ]; then
-              echo "⚠️ Warning: Expected to process $TOTAL_REPO_COUNT repositories but only processed $REPO_INDEX"
-            else
-              echo "✅ Successfully processed all $TOTAL_REPO_COUNT repositories"
-            fi
-            
-            COMMITS="$ALL_COMMITS"
-            COMMIT_COUNT=$TOTAL_COMMITS
-            
-            echo "📊 Total: $COMMIT_COUNT commits across $REPO_COUNT repositories"
-          fi
+                  # Security: Final sanitization before saving
+                  SUMMARY=$(echo "$SUMMARY" | \
+                    sed 's/sk-[a-zA-Z0-9_-]\{20,\}/**REDACTED**/g' | \
+                    sed 's/\b[a-fA-F0-9]\{32,\}\b/**KEY**/g')
 
-          if [ -z "$COMMITS" ] || [ "$COMMIT_COUNT" -eq 0 ]; then
-            echo "ℹ️ No commits found for previous workday, but will still send webhook."
-            COMMITS="No commits found in the specified period."
-            COMMIT_COUNT=0
-          else
-            echo "Found $COMMIT_COUNT commits to summarize"
-          fi
+                  # Save outputs using new syntax
+                  echo "SUMMARY<<EOF" >> $GITHUB_OUTPUT
+                  echo "$SUMMARY" >> $GITHUB_OUTPUT
+                  echo "EOF" >> $GITHUB_OUTPUT
+                  echo "SKIP_WEBHOOK=false" >> $GITHUB_OUTPUT
+                  echo "TODAY=$TODAY" >> $GITHUB_OUTPUT
+                  echo "REPO_COUNT=${REPO_COUNT:-1}" >> $GITHUB_OUTPUT
+                  echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_OUTPUT
 
-          # ---- Prepare OpenAI API request ----
-          # Security: Never echo REQUEST_BODY as it might be logged
+            - name: Send to webhook
+              if: steps.summary.outputs.SKIP_WEBHOOK != 'true'
+              env:
+                  WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+                  SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
+                  TODAY: ${{ steps.summary.outputs.TODAY }}
+                  REPO_COUNT: ${{ steps.summary.outputs.REPO_COUNT }}
+                  COMMIT_COUNT: ${{ steps.summary.outputs.COMMIT_COUNT }}
+              run: |
+                  set -euo pipefail
 
-          if [ "$COMMIT_COUNT" -eq 0 ]; then
-            # No commits found - create a simple message
-            REQUEST_BODY=$(jq -n \
-              --arg start "$START" \
-              --arg end "$END" \
-              '{
-                model: "gpt-4o-mini",
-                max_tokens: 100,
-                temperature: 0.3,
-                messages: [{
-                  role: "user",
-                  content: ($start + " to " + $end + ": No commits found. Return: 📁 No repositories with commits in this period")
-                }]
-              }')
-          else
-            # Commits found - analyze them
-            REQUEST_BODY=$(jq -n \
-              --arg commits "$COMMITS" \
-              --arg start "$START" \
-              --arg end "$END" \
-              --arg count "$COMMIT_COUNT" \
-              '{
-                model: "gpt-4o-mini",
-                max_tokens: 300,
-                temperature: 0.3,
-                messages: [{
-                  role: "user",
-                  content: ("Analyze these " + $count + " git commits and create a concise daily summary focusing on the actual functionality implemented.\n\nRepository Activity:\n" + $commits + "\n\nANALYSIS REQUIREMENTS:\n- Look beyond file names and commit messages\n- Identify the core functionality being implemented\n- Focus on user-facing features, business logic, and system improvements\n- Group related changes by functionality\n- Describe what the code actually does, not what files were changed\n\nEXAMPLES OF GOOD DESCRIPTIONS:\n• '"'"'User authentication system'"'"' (not '"'"'Updated auth.js'"'"')\n• '"'"'Database connection pooling'"'"' (not '"'"'Modified db config'"'"')\n• '"'"'Real-time notifications'"'"' (not '"'"'Added socket.io'"'"')\n• '"'"'API rate limiting'"'"' (not '"'"'Updated middleware'"'"')\n• '"'"'Data validation rules'"'"' (not '"'"'Fixed validation.js'"'"')\n\nFORMAT:\n📁 Repo Name (X commits):\n• Core functionality implemented\n• System improvement made\n\n📁 Another Repo (Y commits):\n• Feature enhancement\n\nGenerate the summary:")
-                }]
-              }')
-          fi
+                  # Security: Mask webhook URL immediately
+                  if [ -n "${WEBHOOK_URL:-}" ]; then
+                    echo "::add-mask::${WEBHOOK_URL}"
+                    # Extract just the service name for safe logging
+                    if echo "$WEBHOOK_URL" | grep -q "slack.com"; then
+                      echo "📤 Sending summary to Slack webhook"
+                    elif echo "$WEBHOOK_URL" | grep -q "discord.com"; then
+                      echo "📤 Sending summary to Discord webhook"
+                    elif echo "$WEBHOOK_URL" | grep -q "office.com"; then
+                      echo "📤 Sending summary to Teams webhook"
+                    else
+                      echo "📤 Sending summary to webhook"
+                    fi
+                  fi
 
-          echo "📝 Prepared API request for $COMMIT_COUNT commits"
+                  # Validate webhook URL exists
+                  if [ -z "${WEBHOOK_URL:-}" ]; then
+                    echo "⚠️ WEBHOOK_URL secret not configured"
+                    echo "Summary was generated but cannot be sent."
+                    echo ""
+                    echo "To enable webhook notifications:"
+                    echo "1. Go to Settings → Secrets and variables → Actions"
+                    echo "2. Click 'New repository secret'"
+                    echo "3. Name: WEBHOOK_URL"
+                    echo "4. Value: Your Slack/Discord/Teams webhook URL"
+                    echo ""
+                    echo "Generated summary:"
+                    echo "$SUMMARY"
+                    exit 0
+                  fi
 
-          # ---- Call OpenAI API with exponential backoff ----
-          MAX_RETRIES=3
-          RETRY_DELAY=2
+                  echo "📤 Sending summary to webhook..."
 
-          for i in $(seq 1 $MAX_RETRIES); do
-            echo "Calling OpenAI API (attempt $i/$MAX_RETRIES)..."
-            
-            # Security: Never log the actual request or response that might contain keys
-            RESPONSE=$(curl -s -S --max-time 30 \
-              https://api.openai.com/v1/chat/completions \
-              -H "Authorization: Bearer $OPENAI_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "$REQUEST_BODY" 2>/dev/null || echo '{"error": "curl failed"}')
-            
-            # Security: Don't echo raw response which might contain sensitive data
-            # Check for rate limit without exposing response
-            if echo "$RESPONSE" | grep -q "rate_limit\|quota_exceeded" 2>/dev/null; then
-              echo "⚠️ Rate limited or quota exceeded. Waiting ${RETRY_DELAY}s..."
-              sleep $RETRY_DELAY
-              RETRY_DELAY=$((RETRY_DELAY * 2))
-              continue
-            fi
-            
-            # Check for authentication errors
-            if echo "$RESPONSE" | grep -q "invalid_api_key\|authentication" 2>/dev/null; then
-              echo "❌ Authentication failed. Please check your OPENAI_API_KEY secret."
-              exit 1
-            fi
-            
-            # Extract summary from response (safe to display)
-            SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty' 2>/dev/null)
-            
-            if [ -n "$SUMMARY" ]; then
-              echo "✅ Successfully generated summary"
-              break
-            fi
-            
-            # Security: Extract error message but sanitize it
-            ERROR=$(echo "$RESPONSE" | jq -r '.error.message // .error // "Unknown error"' 2>/dev/null | \
-              sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | \
-              sed 's/[a-zA-Z0-9]{32,}/**KEY**/g')
-            echo "⚠️ API call failed: ${ERROR:0:100}"  # Truncate error message
-            
-            # Log response status for debugging (without sensitive data)
-            HTTP_STATUS=$(echo "$RESPONSE" | jq -r '.error.status // "unknown"' 2>/dev/null)
-            if [ "$HTTP_STATUS" != "null" ] && [ "$HTTP_STATUS" != "unknown" ]; then
-              echo "📊 HTTP Status: $HTTP_STATUS"
-            fi
-            
-            if [ $i -lt $MAX_RETRIES ]; then
-              echo "Retrying in ${RETRY_DELAY}s..."
-              sleep $RETRY_DELAY
-              RETRY_DELAY=$((RETRY_DELAY * 2))
-            fi
-          done
+                  # Prepare payload with proper escaping (no sensitive data included)
+                  # Adjust message for Monday (weekend commits) vs other days
+                  if [ "$COMMIT_COUNT" -eq 0 ]; then
+                    if [ "$TODAY" -eq 1 ]; then
+                      TITLE="🚀 **Weekend & Friday Development Summary**"
+                    else
+                      TITLE="🚀 **Yesterday's Development Summary**"
+                    fi
+                  else
+                    if [ "$TODAY" -eq 1 ]; then
+                      TITLE="🚀 **Weekend & Friday Development Summary**"
+                    else
+                      TITLE="🚀 **Yesterday's Development Summary**"
+                    fi
+                  fi
 
-          # Fallback if API fails
-          if [ -z "$SUMMARY" ]; then
-            echo "⚠️ Using fallback summary"
-            # Handle case where REPO_COUNT might not be defined (fallback scenario)
-            REPO_COUNT_DISPLAY=${REPO_COUNT:-1}
-            
-            if [ "$COMMIT_COUNT" -eq 0 ]; then
-              if [ "$TODAY" -eq 1 ]; then
-                SUMMARY="📁 No repositories with commits over the weekend"
-              else
-                SUMMARY="📁 No repositories with commits yesterday"
-              fi
-            else
-              if [ "$TODAY" -eq 1 ]; then
-                SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories over the weekend"
-              else
-                SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories yesterday"
-              fi
-            fi
-          fi
+                  # Create payload for Teams
+                  CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
+                  WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-}"
 
-          # Security: Final sanitization before saving
-          SUMMARY=$(echo "$SUMMARY" | \
-            sed 's/sk-[a-zA-Z0-9_-]\{20,\}/**REDACTED**/g' | \
-            sed 's/\b[a-fA-F0-9]\{32,\}\b/**KEY**/g')
+                  # Escape the summary for JSON
+                  ESCAPED_SUMMARY=$(echo "$SUMMARY" | jq -Rs .)
 
-          # Save outputs using new syntax
-          echo "SUMMARY<<EOF" >> $GITHUB_OUTPUT
-          echo "$SUMMARY" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "SKIP_WEBHOOK=false" >> $GITHUB_OUTPUT
-          echo "TODAY=$TODAY" >> $GITHUB_OUTPUT
-          echo "REPO_COUNT=${REPO_COUNT:-1}" >> $GITHUB_OUTPUT
-          echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_OUTPUT
-
-      - name: Send to webhook
-        if: steps.summary.outputs.SKIP_WEBHOOK != 'true'
-        env:
-          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-          SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
-          TODAY: ${{ steps.summary.outputs.TODAY }}
-          REPO_COUNT: ${{ steps.summary.outputs.REPO_COUNT }}
-          COMMIT_COUNT: ${{ steps.summary.outputs.COMMIT_COUNT }}
-        run: |
-          set -euo pipefail
-
-          # Security: Mask webhook URL immediately
-          if [ -n "${WEBHOOK_URL:-}" ]; then
-            echo "::add-mask::${WEBHOOK_URL}"
-            # Extract just the service name for safe logging
-            if echo "$WEBHOOK_URL" | grep -q "slack.com"; then
-              echo "📤 Sending summary to Slack webhook"
-            elif echo "$WEBHOOK_URL" | grep -q "discord.com"; then
-              echo "📤 Sending summary to Discord webhook"
-            elif echo "$WEBHOOK_URL" | grep -q "office.com"; then
-              echo "📤 Sending summary to Teams webhook"
-            else
-              echo "📤 Sending summary to webhook"
-            fi
-          fi
-
-          # Validate webhook URL exists
-          if [ -z "${WEBHOOK_URL:-}" ]; then
-            echo "⚠️ WEBHOOK_URL secret not configured"
-            echo "Summary was generated but cannot be sent."
-            echo ""
-            echo "To enable webhook notifications:"
-            echo "1. Go to Settings → Secrets and variables → Actions"
-            echo "2. Click 'New repository secret'"
-            echo "3. Name: WEBHOOK_URL"
-            echo "4. Value: Your Slack/Discord/Teams webhook URL"
-            echo ""
-            echo "Generated summary:"
-            echo "$SUMMARY"
-            exit 0
-          fi
-
-          echo "📤 Sending summary to webhook..."
-
-          # Prepare payload with proper escaping (no sensitive data included)
-          # Adjust message for Monday (weekend commits) vs other days
-          if [ "$COMMIT_COUNT" -eq 0 ]; then
-            if [ "$TODAY" -eq 1 ]; then
-              TITLE="🚀 **Weekend & Friday Development Summary**"
-            else
-              TITLE="🚀 **Yesterday's Development Summary**"
-            fi
-          else
-            if [ "$TODAY" -eq 1 ]; then
-              TITLE="🚀 **Weekend & Friday Development Summary**"
-            else
-              TITLE="🚀 **Yesterday's Development Summary**"
-            fi
-          fi
-
-          # Create payload for Teams
-          CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
-          WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-}"
-
-          # Escape the summary for JSON
-          ESCAPED_SUMMARY=$(echo "$SUMMARY" | jq -Rs .)
-
-          # Detect webhook type based on URL
-          if echo "$WEBHOOK_URL" | grep -q "webhook.office.com/webhookb2"; then
-            echo "📋 Detected native Teams Incoming Webhook"
-            # Native Teams Incoming Webhook - uses simpler format
-            PAYLOAD=$(jq -n \
-              --arg title "$TITLE" \
-              --arg time "$CURRENT_TIME" \
-              --arg repos "$REPO_COUNT" \
-              --arg commits "$COMMIT_COUNT" \
-              --arg period "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")" \
-              --argjson summary "$ESCAPED_SUMMARY" \
-              --arg url "$WORKFLOW_URL" \
-              '{
-                "@type": "MessageCard",
-                "@context": "https://schema.org/extensions",
-                "themeColor": "0078D4",
-                "title": $title,
-                "summary": ("Commits: " + $commits + " | Repos: " + $repos),
-                "sections": [
-                  {
-                    "activityTitle": $time,
-                    "facts": [
-                      {
-                        "name": "📚 Repositories Checked",
-                        "value": $repos
-                      },
-                      {
-                        "name": "💻 Commits Found",
-                        "value": $commits
-                      },
-                      {
-                        "name": "📅 Time Period",
-                        "value": $period
-                      }
-                    ]
-                  },
-                  {
-                    "title": "**Summary of Work Completed**",
-                    "text": $summary
-                  }
-                ],
-                "potentialAction": [
-                  {
-                    "@type": "OpenUri",
-                    "name": "🔍 View Workflow Run",
-                    "targets": [
-                      {
-                        "os": "default",
-                        "uri": $url
-                      }
-                    ]
-                  }
-                ]
-              }')
-          else
-            echo "📋 Using Power Automate/Teams Webhook format"
-            # Power Automate or other webhook - use AdaptiveCard format
-            PAYLOAD=$(jq -n \
-              --arg title "$TITLE" \
-              --arg time "$CURRENT_TIME" \
-              --arg repos "$REPO_COUNT" \
-              --arg commits "$COMMIT_COUNT" \
-              --arg period "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")" \
-              --argjson summary "$ESCAPED_SUMMARY" \
-              --arg url "$WORKFLOW_URL" \
-              '{
-                type: "message",
-                attachments: [{
-                  contentType: "application/vnd.microsoft.card.adaptive",
-                  content: {
-                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
-                    type: "AdaptiveCard",
-                    version: "1.3",
-                    body: [
-                      {
-                        type: "Container",
-                        style: "emphasis",
-                        bleed: true,
-                        items: [
+                  # Detect webhook type based on URL
+                  if echo "$WEBHOOK_URL" | grep -q "webhook.office.com/webhookb2"; then
+                    echo "📋 Detected native Teams Incoming Webhook"
+                    # Native Teams Incoming Webhook - uses simpler format
+                    PAYLOAD=$(jq -n \
+                      --arg title "$TITLE" \
+                      --arg time "$CURRENT_TIME" \
+                      --arg repos "$REPO_COUNT" \
+                      --arg commits "$COMMIT_COUNT" \
+                      --arg period "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")" \
+                      --argjson summary "$ESCAPED_SUMMARY" \
+                      --arg url "$WORKFLOW_URL" \
+                      '{
+                        "@type": "MessageCard",
+                        "@context": "https://schema.org/extensions",
+                        "themeColor": "0078D4",
+                        "title": $title,
+                        "summary": ("Commits: " + $commits + " | Repos: " + $repos),
+                        "sections": [
                           {
-                            type: "TextBlock",
-                            text: $title,
-                            size: "Large",
-                            weight: "Bolder",
-                            color: "Accent",
-                            wrap: true
+                            "activityTitle": $time,
+                            "facts": [
+                              {
+                                "name": "📚 Repositories Checked",
+                                "value": $repos
+                              },
+                              {
+                                "name": "💻 Commits Found",
+                                "value": $commits
+                              },
+                              {
+                                "name": "📅 Time Period",
+                                "value": $period
+                              }
+                            ]
                           },
                           {
-                            type: "TextBlock",
-                            text: $time,
-                            size: "Small",
-                            color: "Default",
-                            spacing: "None",
-                            wrap: true
-                          }
-                        ]
-                      },
-                      {
-                        type: "FactSet",
-                        facts: [
-                          {
-                            title: "📚 Repositories Checked",
-                            value: $repos
-                          },
-                          {
-                            title: "💻 Commits Found",
-                            value: $commits
-                          },
-                          {
-                            title: "📅 Time Period",
-                            value: $period
+                            "title": "**Summary of Work Completed**",
+                            "text": $summary
                           }
                         ],
-                        spacing: "Medium"
-                      },
-                      {
-                        type: "Container",
-                        style: "default",
-                        items: [
+                        "potentialAction": [
                           {
-                            type: "TextBlock",
-                            text: "**Summary of Work Completed**",
-                            size: "Medium",
-                            weight: "Bolder",
-                            color: "Default",
-                            spacing: "Medium",
-                            wrap: true
-                          },
-                          {
-                            type: "TextBlock",
-                            text: $summary,
-                            wrap: true,
-                            spacing: "Small"
+                            "@type": "OpenUri",
+                            "name": "🔍 View Workflow Run",
+                            "targets": [
+                              {
+                                "os": "default",
+                                "uri": $url
+                              }
+                            ]
                           }
                         ]
-                      }
-                    ],
-                    actions: [
-                      {
-                        type: "Action.OpenUrl",
-                        title: "🔍 View Workflow Run",
-                        url: $url,
-                        style: "positive"
-                      }
-                    ]
-                  }
-                }]
-              }')
-          fi
+                      }')
+                  else
+                    echo "📋 Using Power Automate/Teams Webhook format"
+                    # Power Automate or other webhook - use AdaptiveCard format
+                    PAYLOAD=$(jq -n \
+                      --arg title "$TITLE" \
+                      --arg time "$CURRENT_TIME" \
+                      --arg repos "$REPO_COUNT" \
+                      --arg commits "$COMMIT_COUNT" \
+                      --arg period "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")" \
+                      --argjson summary "$ESCAPED_SUMMARY" \
+                      --arg url "$WORKFLOW_URL" \
+                      '{
+                        type: "message",
+                        attachments: [{
+                          contentType: "application/vnd.microsoft.card.adaptive",
+                          content: {
+                            "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                            type: "AdaptiveCard",
+                            version: "1.3",
+                            body: [
+                              {
+                                type: "Container",
+                                style: "emphasis",
+                                bleed: true,
+                                items: [
+                                  {
+                                    type: "TextBlock",
+                                    text: $title,
+                                    size: "Large",
+                                    weight: "Bolder",
+                                    color: "Accent",
+                                    wrap: true
+                                  },
+                                  {
+                                    type: "TextBlock",
+                                    text: $time,
+                                    size: "Small",
+                                    color: "Default",
+                                    spacing: "None",
+                                    wrap: true
+                                  }
+                                ]
+                              },
+                              {
+                                type: "FactSet",
+                                facts: [
+                                  {
+                                    title: "📚 Repositories Checked",
+                                    value: $repos
+                                  },
+                                  {
+                                    title: "💻 Commits Found",
+                                    value: $commits
+                                  },
+                                  {
+                                    title: "📅 Time Period",
+                                    value: $period
+                                  }
+                                ],
+                                spacing: "Medium"
+                              },
+                              {
+                                type: "Container",
+                                style: "default",
+                                items: [
+                                  {
+                                    type: "TextBlock",
+                                    text: "**Summary of Work Completed**",
+                                    size: "Medium",
+                                    weight: "Bolder",
+                                    color: "Default",
+                                    spacing: "Medium",
+                                    wrap: true
+                                  },
+                                  {
+                                    type: "TextBlock",
+                                    text: $summary,
+                                    wrap: true,
+                                    spacing: "Small"
+                                  }
+                                ]
+                              }
+                            ],
+                            actions: [
+                              {
+                                type: "Action.OpenUrl",
+                                title: "🔍 View Workflow Run",
+                                url: $url,
+                                style: "positive"
+                              }
+                            ]
+                          }
+                        }]
+                      }')
+                  fi
 
-          # Send with retries and exponential backoff
-          MAX_RETRIES=3
-          RETRY_DELAY=2
+                  # Send with retries and exponential backoff
+                  MAX_RETRIES=3
+                  RETRY_DELAY=2
 
-          # Log webhook attempt
-          echo "📤 Attempting to send webhook..."
-          echo "📋 Using Teams Webhook format with AdaptiveCard"
+                  # Log webhook attempt
+                  echo "📤 Attempting to send webhook..."
+                  echo "📋 Using Teams Webhook format with AdaptiveCard"
 
-          for i in $(seq 1 $MAX_RETRIES); do
-            # Security: Send request without exposing URL in logs
-            HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
-              --max-time 10 \
-              -X POST \
-              -H "Content-Type: application/json; charset=utf-8" \
-              -H "Accept: application/json" \
-              -d "$PAYLOAD" \
-              "$WEBHOOK_URL" 2>/dev/null || echo "000")
-            
-            # Check for success (2xx status codes)
-            if [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]]; then
-              echo "✅ Webhook delivered successfully (HTTP $HTTP_STATUS)"
-              exit 0
-            fi
-            
-            # Security: Log status without exposing URL
-            echo "⚠️ Webhook delivery failed (HTTP $HTTP_STATUS, attempt $i/$MAX_RETRIES)"
-            
-            if [ $i -lt $MAX_RETRIES ]; then
-              echo "Retrying in ${RETRY_DELAY}s..."
-              sleep $RETRY_DELAY
-              RETRY_DELAY=$((RETRY_DELAY * 2))
-            fi
-          done
+                  for i in $(seq 1 $MAX_RETRIES); do
+                    # Security: Send request without exposing URL in logs
+                    HTTP_STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+                      --max-time 10 \
+                      -X POST \
+                      -H "Content-Type: application/json; charset=utf-8" \
+                      -H "Accept: application/json" \
+                      -d "$PAYLOAD" \
+                      "$WEBHOOK_URL" 2>/dev/null || echo "000")
+                    
+                    # Check for success (2xx status codes)
+                    if [[ "$HTTP_STATUS" =~ ^2[0-9][0-9]$ ]]; then
+                      echo "✅ Webhook delivered successfully (HTTP $HTTP_STATUS)"
+                      exit 0
+                    fi
+                    
+                    # Security: Log status without exposing URL
+                    echo "⚠️ Webhook delivery failed (HTTP $HTTP_STATUS, attempt $i/$MAX_RETRIES)"
+                    
+                    if [ $i -lt $MAX_RETRIES ]; then
+                      echo "Retrying in ${RETRY_DELAY}s..."
+                      sleep $RETRY_DELAY
+                      RETRY_DELAY=$((RETRY_DELAY * 2))
+                    fi
+                  done
 
-          # Security: Fail without exposing webhook details
-          echo "❌ Failed to send webhook after $MAX_RETRIES attempts"
-          echo "Please verify your WEBHOOK_URL secret is correctly configured"
-          echo "Common issues:"
-          echo "- Webhook URL is invalid or expired"
-          echo "- Teams channel permissions are incorrect"
-          echo "- Network connectivity issues"
-          exit 1
+                  # Security: Fail without exposing webhook details
+                  echo "❌ Failed to send webhook after $MAX_RETRIES attempts"
+                  echo "Please verify your WEBHOOK_URL secret is correctly configured"
+                  echo "Common issues:"
+                  echo "- Webhook URL is invalid or expired"
+                  echo "- Teams channel permissions are incorrect"
+                  echo "- Network connectivity issues"
+                  exit 1
 
-      - name: Job summary
-        if: always()
-        run: |
-          echo "## 📊 Daily Commit Summary Job" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
+            - name: Job summary
+              if: always()
+              run: |
+                  echo "## 📊 Daily Commit Summary Job" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
 
-          # Security: Never include sensitive data in summaries
-          if [ "${{ steps.summary.outputs.SKIP_WEBHOOK }}" == "true" ]; then
-            echo "ℹ️ No commits to summarize" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "### Summary Generated:" >> $GITHUB_STEP_SUMMARY
-            echo "**Repositories checked:** ${{ steps.summary.outputs.REPO_COUNT }}" >> $GITHUB_STEP_SUMMARY
-            echo "**Commits found:** ${{ steps.summary.outputs.COMMIT_COUNT }}" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-            # Security: Only show the generated summary, no API responses or keys
-            SAFE_SUMMARY="${{ steps.summary.outputs.SUMMARY }}"
-            # Additional sanitization: Remove any potential leaked keys
-            SAFE_SUMMARY=$(echo "$SAFE_SUMMARY" | sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | sed 's/[a-fA-F0-9]{32,}/**KEY**/g')
-            
-            # Add production status indicators
-            echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
-            echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
-            echo "**Webhook Format:** Microsoft Teams AdaptiveCard" >> $GITHUB_STEP_SUMMARY
-            echo "$SAFE_SUMMARY" >> $GITHUB_STEP_SUMMARY
-            echo '```' >> $GITHUB_STEP_SUMMARY
-          fi
+                  # Security: Never include sensitive data in summaries
+                  if [ "${{ steps.summary.outputs.SKIP_WEBHOOK }}" == "true" ]; then
+                    echo "ℹ️ No commits to summarize" >> $GITHUB_STEP_SUMMARY
+                  else
+                    echo "### Summary Generated:" >> $GITHUB_STEP_SUMMARY
+                    echo "**Repositories checked:** ${{ steps.summary.outputs.REPO_COUNT }}" >> $GITHUB_STEP_SUMMARY
+                    echo "**Commits found:** ${{ steps.summary.outputs.COMMIT_COUNT }}" >> $GITHUB_STEP_SUMMARY
+                    echo '```' >> $GITHUB_STEP_SUMMARY
+                    # Security: Only show the generated summary, no API responses or keys
+                    SAFE_SUMMARY="${{ steps.summary.outputs.SUMMARY }}"
+                    # Additional sanitization: Remove any potential leaked keys
+                    SAFE_SUMMARY=$(echo "$SAFE_SUMMARY" | sed 's/sk-[a-zA-Z0-9]*/**REDACTED**/g' | sed 's/[a-fA-F0-9]{32,}/**KEY**/g')
+                    
+                    # Add production status indicators
+                    echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
+                    echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
+                    echo "**Webhook Format:** Microsoft Teams AdaptiveCard" >> $GITHUB_STEP_SUMMARY
+                    echo "$SAFE_SUMMARY" >> $GITHUB_STEP_SUMMARY
+                    echo '```' >> $GITHUB_STEP_SUMMARY
+                  fi
 
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Run time:** $(date -u +%Y-%m-%d\ %H:%M:%S) UTC" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Security: All sensitive data masked" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "**Run time:** $(date -u +%Y-%m-%d\ %H:%M:%S) UTC" >> $GITHUB_STEP_SUMMARY
+                  echo "" >> $GITHUB_STEP_SUMMARY
+                  echo "✅ Security: All sensitive data masked" >> $GITHUB_STEP_SUMMARY
