@@ -198,7 +198,7 @@ jobs:
                  temperature: 0.3,
                  messages: [{
                    role: "user",
-                   content: "No git commits found between " + $start + " and " + $end + ". Create a brief message: 📁 No repositories with commits in this period"
+                   content: ($start + " to " + $end + ": No commits found. Return: 📁 No repositories with commits in this period")
                  }]
                }')
           else
@@ -214,7 +214,7 @@ jobs:
                  temperature: 0.3,
                  messages: [{
                    role: "user",
-                   content: "Create a concise daily summary from these " + $count + " git commits.\n\nRepository Activity:\n" + $commits + "\n\nREQUIREMENTS:\n- List ONLY repository names and commit counts\n- Include ONLY the main functionalities you worked on\n- Keep it brief and technical\n- No explanations or fluff\n- Focus on what was actually built/fixed/improved\n\nFORMAT:\n📁 Repo Name (X commits):\n• Functionality 1\n• Functionality 2\n\n📁 Another Repo (Y commits):\n• Functionality 3\n\nGenerate the summary:"
+                   content: ("Create a concise daily summary from these " + $count + " git commits.\n\nRepository Activity:\n" + $commits + "\n\nREQUIREMENTS:\n- List ONLY repository names and commit counts\n- Include ONLY the main functionalities you worked on\n- Keep it brief and technical\n- No explanations or fluff\n- Focus on what was actually built/fixed/improved\n\nFORMAT:\n📁 Repo Name (X commits):\n• Functionality 1\n• Functionality 2\n\n📁 Another Repo (Y commits):\n• Functionality 3\n\nGenerate the summary:")
                  }]
                }')
           fi
