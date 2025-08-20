@@ -112,17 +112,17 @@ jobs:
           REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
             -H "Accept: application/vnd.github.v3+json" \
             "https://api.github.com/user/repos?sort=updated&per_page=200&affiliation=owner,collaborator,organization_member" || echo '[]')
-           
-           # Debug: Check API response for errors
-           if echo "$REPOS_RESPONSE" | jq -e 'has("message")' >/dev/null 2>&1; then
-             ERROR_MSG=$(echo "$REPOS_RESPONSE" | jq -r '.message // "Unknown error"' 2>/dev/null)
-             echo "❌ GitHub API Error: $ERROR_MSG"
-             echo "🔍 This might be due to:"
-             echo "   - Invalid GITHUB_TOKEN"
-             echo "   - Rate limiting"
-             echo "   - Insufficient permissions"
-             exit 1
-           fi
+
+          # Debug: Check API response for errors
+          if echo "$REPOS_RESPONSE" | jq -e 'has("message")' >/dev/null 2>&1; then
+            ERROR_MSG=$(echo "$REPOS_RESPONSE" | jq -r '.message // "Unknown error"' 2>/dev/null)
+            echo "❌ GitHub API Error: $ERROR_MSG"
+            echo "🔍 This might be due to:"
+            echo "   - Invalid GITHUB_TOKEN"
+            echo "   - Rate limiting"
+            echo "   - Insufficient permissions"
+            exit 1
+          fi
 
           # Debug: Check if we got a valid response
           if [ "$REPOS_RESPONSE" = "[]" ]; then
@@ -148,11 +148,11 @@ jobs:
               echo "   - $repo"
             fi
           done
-          
+
           # Show total count and verify we have repositories
           TOTAL_REPO_COUNT=$(echo "$REPOS" | wc -l)
           echo "📋 Total repositories to process: $TOTAL_REPO_COUNT"
-          
+
           if [ "$TOTAL_REPO_COUNT" -eq 0 ]; then
             echo "❌ Error: No repositories found to process"
             exit 1
@@ -316,7 +316,7 @@ jobs:
                 temperature: 0.3,
                 messages: [{
                   role: "user",
-                  content: ("Analyze these " + $count + " git commits and create a concise daily summary focusing on the actual functionality implemented.\n\nRepository Activity:\n" + $commits + "\n\nANALYSIS REQUIREMENTS:\n- Look beyond file names and commit messages\n- Identify the core functionality being implemented\n- Focus on user-facing features, business logic, and system improvements\n- Group related changes by functionality\n- Describe what the code actually does, not what files were changed\n\nEXAMPLES OF GOOD DESCRIPTIONS:\n• 'User authentication system' (not 'Updated auth.js')\n• 'Database connection pooling' (not 'Modified db config')\n• 'Real-time notifications' (not 'Added socket.io')\n• 'API rate limiting' (not 'Updated middleware')\n• 'Data validation rules' (not 'Fixed validation.js')\n\nFORMAT:\n📁 Repo Name (X commits):\n• Core functionality implemented\n• System improvement made\n\n📁 Another Repo (Y commits):\n• Feature enhancement\n\nGenerate the summary:")
+                  content: ("Analyze these " + $count + " git commits and create a concise daily summary focusing on the actual functionality implemented.\n\nRepository Activity:\n" + $commits + "\n\nANALYSIS REQUIREMENTS:\n- Look beyond file names and commit messages\n- Identify the core functionality being implemented\n- Focus on user-facing features, business logic, and system improvements\n- Group related changes by functionality\n- Describe what the code actually does, not what files were changed\n\nEXAMPLES OF GOOD DESCRIPTIONS:\n• '"'"'User authentication system'"'"' (not '"'"'Updated auth.js'"'"')\n• '"'"'Database connection pooling'"'"' (not '"'"'Modified db config'"'"')\n• '"'"'Real-time notifications'"'"' (not '"'"'Added socket.io'"'"')\n• '"'"'API rate limiting'"'"' (not '"'"'Updated middleware'"'"')\n• '"'"'Data validation rules'"'"' (not '"'"'Fixed validation.js'"'"')\n\nFORMAT:\n📁 Repo Name (X commits):\n• Core functionality implemented\n• System improvement made\n\n📁 Another Repo (Y commits):\n• Feature enhancement\n\nGenerate the summary:")
                 }]
               }')
           fi
@@ -477,50 +477,50 @@ jobs:
           # Create MessageCard format for Teams/Power Automate
           CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
           WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-}"
-           
-           # Create MessageCard payload
-           PAYLOAD=$(cat <<EOF
-{
-  "@type": "MessageCard",
-  "@context": "http://schema.org/extensions",
-  "themeColor": "0076D7",
-  "summary": "Daily Commit Summary",
-  "sections": [{
-    "activityTitle": "$TITLE",
-    "activitySubtitle": "$CURRENT_TIME",
-    "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
-    "facts": [
-      {
-        "name": "📚 Repositories Checked",
-        "value": "$REPO_COUNT"
-      },
-      {
-        "name": "💻 Commits Found",
-        "value": "$COMMIT_COUNT"
-      },
-      {
-        "name": "📅 Time Period",
-        "value": "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")"
-      },
-      {
-        "name": "🔗 Workflow Run",
-        "value": "[View Details]($WORKFLOW_URL)"
-      }
-    ],
-    "text": "$SUMMARY",
-    "markdown": true
-  }],
-  "potentialAction": [{
-    "@type": "OpenUri",
-    "name": "🔍 View Workflow Run",
-    "targets": [{
-      "os": "default",
-      "uri": "$WORKFLOW_URL"
-    }]
-  }]
-}
-EOF
-)
+
+          # Create MessageCard payload
+          PAYLOAD=$(cat <<EOF
+          {
+            "@type": "MessageCard",
+            "@context": "http://schema.org/extensions",
+            "themeColor": "0076D7",
+            "summary": "Daily Commit Summary",
+            "sections": [{
+              "activityTitle": "$TITLE",
+              "activitySubtitle": "$CURRENT_TIME",
+              "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+              "facts": [
+                {
+                  "name": "📚 Repositories Checked",
+                  "value": "$REPO_COUNT"
+                },
+                {
+                  "name": "💻 Commits Found",
+                  "value": "$COMMIT_COUNT"
+                },
+                {
+                  "name": "📅 Time Period",
+                  "value": "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")"
+                },
+                {
+                  "name": "🔗 Workflow Run",
+                  "value": "[View Details]($WORKFLOW_URL)"
+                }
+              ],
+              "text": "$SUMMARY",
+              "markdown": true
+            }],
+            "potentialAction": [{
+              "@type": "OpenUri",
+              "name": "🔍 View Workflow Run",
+              "targets": [{
+                "os": "default",
+                "uri": "$WORKFLOW_URL"
+              }]
+            }]
+          }
+          EOF
+          )
 
           # Send with retries and exponential backoff
           MAX_RETRIES=3
