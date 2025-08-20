@@ -474,53 +474,96 @@ jobs:
             fi
           fi
 
-          # Create MessageCard format for Teams/Power Automate
+                     # Create AdaptiveCard format for Teams/Power Automate
           CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
           WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-}"
 
-          # Create MessageCard payload
-          PAYLOAD=$(cat <<EOF
-          {
-            "@type": "MessageCard",
-            "@context": "http://schema.org/extensions",
-            "themeColor": "0076D7",
-            "summary": "Daily Commit Summary",
-            "sections": [{
-              "activityTitle": "$TITLE",
-              "activitySubtitle": "$CURRENT_TIME",
-              "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
-              "facts": [
-                {
-                  "name": "📚 Repositories Checked",
-                  "value": "$REPO_COUNT"
-                },
-                {
-                  "name": "💻 Commits Found",
-                  "value": "$COMMIT_COUNT"
-                },
-                {
-                  "name": "📅 Time Period",
-                  "value": "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")"
-                },
-                {
-                  "name": "🔗 Workflow Run",
-                  "value": "[View Details]($WORKFLOW_URL)"
-                }
-              ],
-              "text": "$SUMMARY",
-              "markdown": true
-            }],
-            "potentialAction": [{
-              "@type": "OpenUri",
-              "name": "🔍 View Workflow Run",
-              "targets": [{
-                "os": "default",
-                "uri": "$WORKFLOW_URL"
-              }]
-            }]
-          }
-          EOF
-          )
+                     # Create AdaptiveCard payload with better styling
+           PAYLOAD=$(cat <<EOF
+           {
+             "type": "message",
+             "attachments": [{
+               "contentType": "application/vnd.microsoft.card.adaptive",
+               "content": {
+                 "type": "AdaptiveCard",
+                 "version": "1.3",
+                 "body": [
+                   {
+                     "type": "Container",
+                     "style": "emphasis",
+                     "bleed": true,
+                     "items": [
+                       {
+                         "type": "TextBlock",
+                         "text": "$TITLE",
+                         "size": "Large",
+                         "weight": "Bolder",
+                         "color": "Accent",
+                         "wrap": true
+                       },
+                       {
+                         "type": "TextBlock",
+                         "text": "$CURRENT_TIME",
+                         "size": "Small",
+                         "color": "Default",
+                         "spacing": "None",
+                         "wrap": true
+                       }
+                     ]
+                   },
+                   {
+                     "type": "FactSet",
+                     "facts": [
+                       {
+                         "title": "📚 Repositories Checked",
+                         "value": "$REPO_COUNT"
+                       },
+                       {
+                         "title": "💻 Commits Found", 
+                         "value": "$COMMIT_COUNT"
+                       },
+                       {
+                         "title": "📅 Time Period",
+                         "value": "$([ "$TODAY" -eq 1 ] && echo "Weekend & Friday" || echo "Yesterday")"
+                       }
+                     ],
+                     "spacing": "Medium"
+                   },
+                   {
+                     "type": "Container",
+                     "style": "default",
+                     "items": [
+                       {
+                         "type": "TextBlock",
+                         "text": "**Summary of Work Completed**",
+                         "size": "Medium",
+                         "weight": "Bolder",
+                         "color": "Default",
+                         "spacing": "Medium",
+                         "wrap": true
+                       },
+                       {
+                         "type": "TextBlock",
+                         "text": "$SUMMARY",
+                         "wrap": true,
+                         "spacing": "Small"
+                       }
+                     ]
+                   }
+                 ],
+                 "actions": [
+                   {
+                     "type": "Action.OpenUrl",
+                     "title": "🔍 View Workflow Run",
+                     "url": "$WORKFLOW_URL",
+                     "style": "positive"
+                   }
+                 ]
+               }
+             }]
+           }
+           EOF
+           )
 
           # Send with retries and exponential backoff
           MAX_RETRIES=3
@@ -528,7 +571,7 @@ jobs:
 
           # Log webhook attempt
           echo "📤 Attempting to send webhook..."
-          echo "📋 Using MessageCard format for Teams/Power Automate"
+                     echo "📋 Using AdaptiveCard format for Teams/Power Automate"
 
           for i in $(seq 1 $MAX_RETRIES); do
             # Security: Send request without exposing URL in logs
@@ -586,7 +629,7 @@ jobs:
             # Add production status indicators
             echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
             echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
-            echo "**Webhook Format:** Microsoft Teams MessageCard" >> $GITHUB_STEP_SUMMARY
+                         echo "**Webhook Format:** Microsoft Teams AdaptiveCard" >> $GITHUB_STEP_SUMMARY
             echo "$SAFE_SUMMARY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
