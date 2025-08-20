@@ -481,8 +481,7 @@ jobs:
              --arg repo_count "$REPO_COUNT" \
              --arg commit_count "$COMMIT_COUNT" \
              '{
-               "text": ($title + "\n\n" + $summary + "\n\n---\n📊 **Summary Stats:**\n• **Repositories checked:** " + $repo_count + "\n• **Commits found:** " + $commit_count + "\n• **Generated:** " + (now | strftime("%B %d, %Y at %I:%M %p UTC"))),
-               "mrkdwn": true
+               "text": ($title + "\n\n" + $summary + "\n\n---\n📊 Summary Stats:\n• Repositories checked: " + $repo_count + "\n• Commits found: " + $commit_count + "\n• Generated: " + (now | strftime("%B %d, %Y at %I:%M %p UTC")))
              }')
 
           # Send with retries and exponential backoff
@@ -548,7 +547,7 @@ jobs:
             # Add production status indicators
             echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
             echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
-                         echo "**Webhook Format:** Enhanced Markdown" >> $GITHUB_STEP_SUMMARY
+                         echo "**Webhook Format:** Simple Text JSON" >> $GITHUB_STEP_SUMMARY
             echo "$SAFE_SUMMARY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
