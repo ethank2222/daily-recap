@@ -239,10 +239,10 @@ jobs:
                         
                         # Show first few commits for debugging
                         echo "  📋 First 3 commits (all authors):"
-                        echo "$COMMITS_RESPONSE" | jq -r '.[0:3] | .[] | "    - \(.sha[0:7]) by \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "    No commits found"
+                        echo "$COMMITS_RESPONSE" | jq -r '.[0:3] | .[] | "    - \(.sha[0:7]) by \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0] | @sh)"' 2>/dev/null | sed "s/'//g" || echo "    No commits found"
                         
                         # Extract commit information, filtering to only ethank2222's commits (check both author and committer)
-                        REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user or .committer.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
+                        REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user or .committer.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0] | @sh)"' 2>/dev/null | sed "s/'//g" || echo "")
                         
                         # Count only ethank2222's commits (check both author and committer)
                         REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user or .committer.login == $user)] | length' 2>/dev/null || echo "0")
@@ -252,10 +252,10 @@ jobs:
                         
                         # Add repository header and commits (or no commits message)
                         if [ -n "$REPO_COMMITS" ] && [ "$REPO_COMMIT_COUNT" -gt 0 ]; then
-                          ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** ($REPO_COMMIT_COUNT commits):\n$REPO_COMMITS"
+                          ALL_COMMITS=$(printf "%s\n\n📁 **%s** (%s commits):\n%s" "$ALL_COMMITS" "$repo" "$REPO_COMMIT_COUNT" "$REPO_COMMITS")
                           TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
                         else
-                          ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** (0 commits):\n• No commits in this period"
+                          ALL_COMMITS=$(printf "%s\n\n📁 **%s** (0 commits):\n• No commits in this period" "$ALL_COMMITS" "$repo")
                         fi
                         
                         # Always increment repo count since we're checking every repo
