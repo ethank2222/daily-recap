@@ -76,24 +76,27 @@ jobs:
                   fi
                   echo "✅ API key validated (length: $KEY_LENGTH characters)"
 
-                  # ---- Time window setup ----
-                  TODAY=$(date -u +%u)  # weekday number (1=Mon ... 7=Sun)
+                  # ---- Time window setup (Pacific Time) ----
+                  # Set timezone to Pacific
+                  export TZ="America/Los_Angeles"
+
+                  TODAY=$(date +%u)  # weekday number (1=Mon ... 7=Sun)
 
                   # Handle Monday (include weekend commits)
                   if [ "$TODAY" -eq 1 ]; then
-                    START=$(date -u -d "3 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
+                    START=$(date -d "3 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
                   else
-                    START=$(date -u -d "1 day ago 00:00" +"%Y-%m-%d %H:%M:%S")
+                    START=$(date -d "1 day ago 00:00" +"%Y-%m-%d %H:%M:%S")
                   fi
 
-                  END=$(date -u -d "today 00:00" +"%Y-%m-%d %H:%M:%S")
+                  END=$(date -d "today 00:00" +"%Y-%m-%d %H:%M:%S")
 
-                  echo "📅 Collecting commits between $START and $END (UTC)"
+                  echo "📅 Collecting commits between $START and $END (Pacific Time)"
 
                   # ---- Collect commits from all repositories ----
                   echo "🔍 Fetching commits from all repositories..."
 
-                  # Convert dates to ISO format for GitHub API
+                  # Convert dates to ISO format for GitHub API (Pacific to UTC)
                   START_ISO=$(date -u -d "$START" +"%Y-%m-%dT%H:%M:%SZ")
                   END_ISO=$(date -u -d "$END" +"%Y-%m-%dT%H:%M:%SZ")
 
@@ -152,30 +155,47 @@ jobs:
                   fi
 
                   if [ -z "$COMMITS" ] || [ "$COMMIT_COUNT" -eq 0 ]; then
-                    echo "ℹ️ No commits found for previous workday. Skipping."
-                    echo "SUMMARY=No commits in the specified period." >> $GITHUB_OUTPUT
-                    echo "SKIP_WEBHOOK=true" >> $GITHUB_OUTPUT
-                    exit 0
+                    echo "ℹ️ No commits found for previous workday, but will still send webhook."
+                    COMMITS="No commits found in the specified period."
+                    COMMIT_COUNT=0
+                  else
+                    echo "Found $COMMIT_COUNT commits to summarize"
                   fi
-
-                  echo "Found $COMMIT_COUNT commits to summarize"
 
                   # ---- Prepare Claude API request ----
                   # Security: Never echo REQUEST_BODY as it might be logged
-                  REQUEST_BODY=$(jq -n \
-                    --arg commits "$COMMITS" \
-                    --arg start "$START" \
-                    --arg end "$END" \
-                    --arg count "$COMMIT_COUNT" \
-                    '{
-                      model: "claude-3-5-sonnet-20241022",
-                      max_tokens: 400,
-                      temperature: 0.3,
-                      messages: [{
-                        role: "user",
-                        content: "Analyze these \($count) git commits across multiple repositories and create a standup update that highlights the MOST IMPRESSIVE and IMPORTANT work completed.\n\nCommits:\n\($commits)\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Group minor related commits into one impressive bullet\n6. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-5 bullets MAX (combine small items)\n- Lead with the most impressive/impactful work\n- Keep high-level (no file names or code details)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Mention repository names when relevant for context\n- Group work by project/theme when possible\n\nExample impressive format:\n- Shipped new customer dashboard with real-time analytics across 3 repositories\n- Accelerated API response times by 3x through caching optimization in backend services\n- Eliminated critical security vulnerability in authentication flow\n- Streamlined deployment pipeline, reducing release time by 40%\n- Coordinated frontend and backend updates for new feature launch\n\nGenerate impressive bullets now:"
-                      }]
-                    }')
+
+                  if [ "$COMMIT_COUNT" -eq 0 ]; then
+                    # No commits found - create a simple message
+                    REQUEST_BODY=$(jq -n \
+                      --arg start "$START" \
+                      --arg end "$END" \
+                      '{
+                        model: "claude-3-5-sonnet-20241022",
+                        max_tokens: 200,
+                        temperature: 0.3,
+                        messages: [{
+                          role: "user",
+                          content: "No git commits were found between \($start) and \($end) Pacific Time. Create a brief, professional message acknowledging this quiet period. Keep it positive and encouraging. Format as 1-2 bullet points."
+                        }]
+                      }')
+                  else
+                    # Commits found - analyze them
+                    REQUEST_BODY=$(jq -n \
+                      --arg commits "$COMMITS" \
+                      --arg start "$START" \
+                      --arg end "$END" \
+                      --arg count "$COMMIT_COUNT" \
+                      '{
+                        model: "claude-3-5-sonnet-20241022",
+                        max_tokens: 400,
+                        temperature: 0.3,
+                        messages: [{
+                          role: "user",
+                          content: "Analyze these \($count) git commits across multiple repositories and create a standup update that highlights the MOST IMPRESSIVE and IMPORTANT work completed.\n\nCommits:\n\($commits)\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Group minor related commits into one impressive bullet\n6. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-5 bullets MAX (combine small items)\n- Lead with the most impressive/impactful work\n- Keep high-level (no file names or code details)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Mention repository names when relevant for context\n- Group work by project/theme when possible\n\nExample impressive format:\n- Shipped new customer dashboard with real-time analytics across 3 repositories\n- Accelerated API response times by 3x through caching optimization in backend services\n- Eliminated critical security vulnerability in authentication flow\n- Streamlined deployment pipeline, reducing release time by 40%\n- Coordinated frontend and backend updates for new feature launch\n\nGenerate impressive bullets now:"
+                        }]
+                      }')
+                  fi
 
                   echo "📝 Prepared API request for $COMMIT_COUNT commits"
 
@@ -229,10 +249,19 @@ jobs:
                     echo "⚠️ Using fallback summary"
                     # Handle case where REPO_COUNT might not be defined (fallback scenario)
                     REPO_COUNT_DISPLAY=${REPO_COUNT:-1}
-                    if [ "$TODAY" -eq 1 ]; then
-                      SUMMARY="- Completed $COMMIT_COUNT development tasks across $REPO_COUNT_DISPLAY repositories over the weekend\n- Various improvements and fixes shipped\n- Details available in commit history"
+                    
+                    if [ "$COMMIT_COUNT" -eq 0 ]; then
+                      if [ "$TODAY" -eq 1 ]; then
+                        SUMMARY="- No development activity detected over the weekend across $REPO_COUNT_DISPLAY repositories\n- Taking time to plan and prepare for the week ahead"
+                      else
+                        SUMMARY="- No development activity detected yesterday across $REPO_COUNT_DISPLAY repositories\n- Focused on planning, meetings, or other non-coding tasks"
+                      fi
                     else
-                      SUMMARY="- Completed $COMMIT_COUNT development tasks across $REPO_COUNT_DISPLAY repositories yesterday\n- Multiple improvements and updates shipped\n- See commit history for specifics"
+                      if [ "$TODAY" -eq 1 ]; then
+                        SUMMARY="- Completed $COMMIT_COUNT development tasks across $REPO_COUNT_DISPLAY repositories over the weekend\n- Various improvements and fixes shipped\n- Details available in commit history"
+                      else
+                        SUMMARY="- Completed $COMMIT_COUNT development tasks across $REPO_COUNT_DISPLAY repositories yesterday\n- Multiple improvements and updates shipped\n- See commit history for specifics"
+                      fi
                     fi
                   fi
 
@@ -248,6 +277,7 @@ jobs:
                   echo "SKIP_WEBHOOK=false" >> $GITHUB_OUTPUT
                   echo "TODAY=$TODAY" >> $GITHUB_OUTPUT
                   echo "REPO_COUNT=${REPO_COUNT:-1}" >> $GITHUB_OUTPUT
+                  echo "COMMIT_COUNT=$COMMIT_COUNT" >> $GITHUB_OUTPUT
 
             - name: Send to webhook
               if: steps.summary.outputs.SKIP_WEBHOOK != 'true'
@@ -256,6 +286,7 @@ jobs:
                   SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
                   TODAY: ${{ steps.summary.outputs.TODAY }}
                   REPO_COUNT: ${{ steps.summary.outputs.REPO_COUNT }}
+                  COMMIT_COUNT: ${{ steps.summary.outputs.COMMIT_COUNT }}
               run: |
                   set -euo pipefail
 
@@ -294,10 +325,18 @@ jobs:
 
                   # Prepare payload with proper escaping (no sensitive data included)
                   # Adjust message for Monday (weekend commits) vs other days
-                  if [ "$TODAY" -eq 1 ]; then
-                    TITLE="📊 *Weekend & Friday Progress* (${REPO_COUNT} repos)"
+                  if [ "$COMMIT_COUNT" -eq 0 ]; then
+                    if [ "$TODAY" -eq 1 ]; then
+                      TITLE="📊 *Weekend & Friday Progress* (${REPO_COUNT} repos, no commits)"
+                    else
+                      TITLE="📊 *Yesterday's Progress* (${REPO_COUNT} repos, no commits)"
+                    fi
                   else
-                    TITLE="📊 *Yesterday's Progress* (${REPO_COUNT} repos)"
+                    if [ "$TODAY" -eq 1 ]; then
+                      TITLE="📊 *Weekend & Friday Progress* (${REPO_COUNT} repos, ${COMMIT_COUNT} commits)"
+                    else
+                      TITLE="📊 *Yesterday's Progress* (${REPO_COUNT} repos, ${COMMIT_COUNT} commits)"
+                    fi
                   fi
 
                   # Security: Payload only contains the summary, no keys or URLs
@@ -351,6 +390,7 @@ jobs:
                   else
                     echo "### Summary Generated:" >> $GITHUB_STEP_SUMMARY
                     echo "**Repositories checked:** ${{ steps.summary.outputs.REPO_COUNT }}" >> $GITHUB_STEP_SUMMARY
+                    echo "**Commits found:** ${{ steps.summary.outputs.COMMIT_COUNT }}" >> $GITHUB_STEP_SUMMARY
                     echo '```' >> $GITHUB_STEP_SUMMARY
                     # Security: Only show the generated summary, no API responses or keys
                     SAFE_SUMMARY="${{ steps.summary.outputs.SUMMARY }}"
