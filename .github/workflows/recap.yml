@@ -100,10 +100,10 @@ jobs:
           START_ISO=$(date -u -d "$START" +"%Y-%m-%dT%H:%M:%SZ")
           END_ISO=$(date -u -d "$END" +"%Y-%m-%dT%H:%M:%SZ")
 
-          # Get all repositories the user has access to
-          REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github.v3+json" \
-            "https://api.github.com/user/repos?type=all&sort=updated&per_page=100" || echo '[]')
+                     # Get all repositories the user has access to (increased limit)
+           REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+             -H "Accept: application/vnd.github.v3+json" \
+             "https://api.github.com/user/repos?type=all&sort=updated&per_page=200" || echo '[]')
 
           # Extract repository names
           REPOS=$(echo "$REPOS_RESPONSE" | jq -r '.[].full_name' 2>/dev/null || echo "")
@@ -128,31 +128,19 @@ jobs:
               if [ -n "$repo" ]; then
                 echo "🔍 Checking repository: $repo"
                 
-                                 # Get commits for this repository in the time window (all branches)
+                                 # Get commits for this repository in the time window (all branches, increased limit)
                  COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                    -H "Accept: application/vnd.github.v3+json" \
-                   "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100&sha=all" || echo '[]')
+                   "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=200&sha=all" || echo '[]')
                 
-                # Get current user's username for filtering
-                CURRENT_USER=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                  -H "Accept: application/vnd.github.v3+json" \
-                  "https://api.github.com/user" | jq -r '.login' 2>/dev/null || echo "")
+                                 # Set specific username for filtering (ethank2222)
+                 CURRENT_USER="ethank2222"
                 
-                                 # Extract commit information, filtering to only current user's commits
-                 if [ -n "$CURRENT_USER" ]; then
-                   REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
-                 else
-                   # Fallback if we can't get current user - skip this repo
-                   echo "  ⚠️ Could not determine current user, skipping $repo"
-                   REPO_COMMITS=""
-                 fi
+                                 # Extract commit information, filtering to only ethank2222's commits
+                 REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
                 
-                # Count only current user's commits
-                if [ -n "$CURRENT_USER" ]; then
-                  REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user)] | length' 2>/dev/null || echo "0")
-                else
-                  REPO_COMMIT_COUNT=0
-                fi
+                                 # Count only ethank2222's commits
+                 REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user)] | length' 2>/dev/null || echo "0")
                 
                 # Always show repository status, even if no commits
                 echo "  📝 Found $REPO_COMMIT_COUNT of your commits in $repo"
