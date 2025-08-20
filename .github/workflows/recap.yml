@@ -82,14 +82,14 @@ jobs:
 
           TODAY=$(date +%u)  # weekday number (1=Mon ... 7=Sun)
 
-                     # Handle Monday (include weekend commits) - Extended time window for better coverage
-           if [ "$TODAY" -eq 1 ]; then
-             START=$(date -d "7 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
-           else
-             START=$(date -d "3 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
-           fi
+          # Handle Monday (include weekend commits) - Extended time window for better coverage
+          if [ "$TODAY" -eq 1 ]; then
+            START=$(date -d "7 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
+          else
+            START=$(date -d "3 days ago 00:00" +"%Y-%m-%d %H:%M:%S")
+          fi
 
-           END=$(date -d "tomorrow 00:00" +"%Y-%m-%d %H:%M:%S")
+          END=$(date -d "tomorrow 00:00" +"%Y-%m-%d %H:%M:%S")
 
           echo "🔍 Debug: Extended time window for better coverage"
 
@@ -107,11 +107,11 @@ jobs:
           echo "  Start (UTC): $START_ISO"
           echo "  End (UTC): $END_ISO"
 
-                     # Get all repositories the user has access to (increased limit)
-           echo "🔍 Fetching repositories from GitHub API..."
-                       REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-              -H "Accept: application/vnd.github.v3+json" \
-              "https://api.github.com/user/repos?sort=updated&per_page=200&affiliation=owner,collaborator,organization_member" || echo '[]')
+          # Get all repositories the user has access to (increased limit)
+          echo "🔍 Fetching repositories from GitHub API..."
+          REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github.v3+json" \
+            "https://api.github.com/user/repos?sort=updated&per_page=200&affiliation=owner,collaborator,organization_member" || echo '[]')
            
            # Debug: Check API response for errors
            if echo "$REPOS_RESPONSE" | jq -e 'has("message")' >/dev/null 2>&1; then
@@ -141,22 +141,22 @@ jobs:
           echo "📋 Raw repository response count: $(echo "$REPOS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")"
           echo "📋 Extracted repository names count: $(echo "$REPOS" | wc -l)"
 
-                     # Show first few repositories for debugging
-           echo "📋 First 5 repositories found:"
-           echo "$REPOS" | head -5 | while read -r repo; do
-             if [ -n "$repo" ]; then
-               echo "   - $repo"
-             fi
-           done
-           
-           # Show total count and verify we have repositories
-           TOTAL_REPO_COUNT=$(echo "$REPOS" | wc -l)
-           echo "📋 Total repositories to process: $TOTAL_REPO_COUNT"
-           
-           if [ "$TOTAL_REPO_COUNT" -eq 0 ]; then
-             echo "❌ Error: No repositories found to process"
-             exit 1
-           fi
+          # Show first few repositories for debugging
+          echo "📋 First 5 repositories found:"
+          echo "$REPOS" | head -5 | while read -r repo; do
+            if [ -n "$repo" ]; then
+              echo "   - $repo"
+            fi
+          done
+          
+          # Show total count and verify we have repositories
+          TOTAL_REPO_COUNT=$(echo "$REPOS" | wc -l)
+          echo "📋 Total repositories to process: $TOTAL_REPO_COUNT"
+          
+          if [ "$TOTAL_REPO_COUNT" -eq 0 ]; then
+            echo "❌ Error: No repositories found to process"
+            exit 1
+          fi
 
           if [ -z "$REPOS" ]; then
             echo "⚠️ Could not fetch repositories. Falling back to current repo only."
@@ -181,71 +181,71 @@ jobs:
                 REPO_INDEX=$((REPO_INDEX + 1))
                 echo "🔍 Checking repository $REPO_INDEX: $repo"
                 
-                                 # Get all branches for this repository first
-                 echo "  🌿 Fetching all branches for $repo..."
-                 BRANCHES_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                   -H "Accept: application/vnd.github.v3+json" \
-                   "https://api.github.com/repos/$repo/branches?per_page=100" || echo '[]')
-                 
-                 # Extract branch names
-                 BRANCHES=$(echo "$BRANCHES_RESPONSE" | jq -r '.[].name' 2>/dev/null || echo "")
-                 BRANCH_COUNT=$(echo "$BRANCHES" | wc -l)
-                 echo "  📋 Found $BRANCH_COUNT branches in $repo"
-                 
-                 # Initialize repository commits array
-                 REPO_ALL_COMMITS_ARRAY="[]"
-                 REPO_COMMIT_COUNT=0
-                 
-                 # Get commits from each branch
-                 if [ -n "$BRANCHES" ]; then
-                   while IFS= read -r branch; do
-                     if [ -n "$branch" ]; then
-                       echo "    🔍 Checking branch: $branch"
-                       
-                       # Get commits for this specific branch
-                       BRANCH_COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                         -H "Accept: application/vnd.github.v3+json" \
-                         "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100&sha=$branch" || echo '[]')
-                       
-                       # Count commits in this branch
-                       BRANCH_COMMIT_COUNT=$(echo "$BRANCH_COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
-                       echo "      📝 Found $BRANCH_COMMIT_COUNT commits in branch $branch"
-                       
-                       # Merge branch commits into repository array (avoid duplicates by SHA)
-                       if [ "$BRANCH_COMMIT_COUNT" -gt 0 ]; then
-                         REPO_ALL_COMMITS_ARRAY=$(echo "$REPO_ALL_COMMITS_ARRAY" | jq --argjson branch_commits "$BRANCH_COMMITS_RESPONSE" '. + $branch_commits | unique_by(.sha)' 2>/dev/null || echo "$REPO_ALL_COMMITS_ARRAY")
-                         REPO_COMMIT_COUNT=$(echo "$REPO_ALL_COMMITS_ARRAY" | jq 'length' 2>/dev/null || echo "0")
-                       fi
-                     fi
-                   done <<< "$BRANCHES"
-                 fi
-                 
-                 # Use the combined commits from all branches
-                 COMMITS_RESPONSE="$REPO_ALL_COMMITS_ARRAY"
-                 
-                 # Debug: Check if we found any commits
-                 if [ "$REPO_COMMIT_COUNT" -eq 0 ]; then
-                   echo "  ⚠️ No commits found in any branch for $repo"
-                 else
-                   echo "  ✅ Found $REPO_COMMIT_COUNT total commits across all branches"
-                 fi
+                # Get all branches for this repository first
+                echo "  🌿 Fetching all branches for $repo..."
+                BRANCHES_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                  -H "Accept: application/vnd.github.v3+json" \
+                  "https://api.github.com/repos/$repo/branches?per_page=100" || echo '[]')
                 
-                                 # Set specific username for filtering (ethank2222)
-                 CURRENT_USER="ethank2222"
-                 
-                 # Debug: Show all commits found (before filtering)
-                 TOTAL_COMMITS_IN_REPO=$(echo "$COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
-                 echo "  📊 Total commits in repo: $TOTAL_COMMITS_IN_REPO"
-                 
-                 # Show first few commits for debugging
-                 echo "  📋 First 3 commits (all authors):"
-                 echo "$COMMITS_RESPONSE" | jq -r '.[0:3] | .[] | "    - \(.sha[0:7]) by \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "    No commits found"
-                 
-                                   # Extract commit information, filtering to only ethank2222's commits (check both author and committer)
-                  REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user or .committer.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
-                  
-                  # Count only ethank2222's commits (check both author and committer)
-                  REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user or .committer.login == $user)] | length' 2>/dev/null || echo "0")
+                # Extract branch names
+                BRANCHES=$(echo "$BRANCHES_RESPONSE" | jq -r '.[].name' 2>/dev/null || echo "")
+                BRANCH_COUNT=$(echo "$BRANCHES" | wc -l)
+                echo "  📋 Found $BRANCH_COUNT branches in $repo"
+                
+                # Initialize repository commits array
+                REPO_ALL_COMMITS_ARRAY="[]"
+                REPO_COMMIT_COUNT=0
+                
+                # Get commits from each branch
+                if [ -n "$BRANCHES" ]; then
+                  while IFS= read -r branch; do
+                    if [ -n "$branch" ]; then
+                      echo "    🔍 Checking branch: $branch"
+                      
+                      # Get commits for this specific branch
+                      BRANCH_COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                        -H "Accept: application/vnd.github.v3+json" \
+                        "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100&sha=$branch" || echo '[]')
+                      
+                      # Count commits in this branch
+                      BRANCH_COMMIT_COUNT=$(echo "$BRANCH_COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
+                      echo "      📝 Found $BRANCH_COMMIT_COUNT commits in branch $branch"
+                      
+                      # Merge branch commits into repository array (avoid duplicates by SHA)
+                      if [ "$BRANCH_COMMIT_COUNT" -gt 0 ]; then
+                        REPO_ALL_COMMITS_ARRAY=$(echo "$REPO_ALL_COMMITS_ARRAY" | jq --argjson branch_commits "$BRANCH_COMMITS_RESPONSE" '. + $branch_commits | unique_by(.sha)' 2>/dev/null || echo "$REPO_ALL_COMMITS_ARRAY")
+                        REPO_COMMIT_COUNT=$(echo "$REPO_ALL_COMMITS_ARRAY" | jq 'length' 2>/dev/null || echo "0")
+                      fi
+                    fi
+                  done <<< "$BRANCHES"
+                fi
+                
+                # Use the combined commits from all branches
+                COMMITS_RESPONSE="$REPO_ALL_COMMITS_ARRAY"
+                
+                # Debug: Check if we found any commits
+                if [ "$REPO_COMMIT_COUNT" -eq 0 ]; then
+                  echo "  ⚠️ No commits found in any branch for $repo"
+                else
+                  echo "  ✅ Found $REPO_COMMIT_COUNT total commits across all branches"
+                fi
+                
+                # Set specific username for filtering (ethank2222)
+                CURRENT_USER="ethank2222"
+                
+                # Debug: Show all commits found (before filtering)
+                TOTAL_COMMITS_IN_REPO=$(echo "$COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
+                echo "  📊 Total commits in repo: $TOTAL_COMMITS_IN_REPO"
+                
+                # Show first few commits for debugging
+                echo "  📋 First 3 commits (all authors):"
+                echo "$COMMITS_RESPONSE" | jq -r '.[0:3] | .[] | "    - \(.sha[0:7]) by \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "    No commits found"
+                
+                # Extract commit information, filtering to only ethank2222's commits (check both author and committer)
+                REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user or .committer.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
+                
+                # Count only ethank2222's commits (check both author and committer)
+                REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user or .committer.login == $user)] | length' 2>/dev/null || echo "0")
                 
                 # Always show repository status, even if no commits
                 echo "  📝 Found $REPO_COMMIT_COUNT of your commits in $repo"
@@ -263,19 +263,19 @@ jobs:
               fi
             done <<< "$REPOS"
 
-                         echo "✅ Repository iteration complete. Processed $REPO_INDEX repositories."
-             
-             # Verify we processed all repositories
-             if [ "$REPO_INDEX" -ne "$TOTAL_REPO_COUNT" ]; then
-               echo "⚠️ Warning: Expected to process $TOTAL_REPO_COUNT repositories but only processed $REPO_INDEX"
-             else
-               echo "✅ Successfully processed all $TOTAL_REPO_COUNT repositories"
-             fi
-             
-             COMMITS="$ALL_COMMITS"
-             COMMIT_COUNT=$TOTAL_COMMITS
-             
-             echo "📊 Total: $COMMIT_COUNT commits across $REPO_COUNT repositories"
+            echo "✅ Repository iteration complete. Processed $REPO_INDEX repositories."
+            
+            # Verify we processed all repositories
+            if [ "$REPO_INDEX" -ne "$TOTAL_REPO_COUNT" ]; then
+              echo "⚠️ Warning: Expected to process $TOTAL_REPO_COUNT repositories but only processed $REPO_INDEX"
+            else
+              echo "✅ Successfully processed all $TOTAL_REPO_COUNT repositories"
+            fi
+            
+            COMMITS="$ALL_COMMITS"
+            COMMIT_COUNT=$TOTAL_COMMITS
+            
+            echo "📊 Total: $COMMIT_COUNT commits across $REPO_COUNT repositories"
           fi
 
           if [ -z "$COMMITS" ] || [ "$COMMIT_COUNT" -eq 0 ]; then
@@ -289,36 +289,36 @@ jobs:
           # ---- Prepare OpenAI API request ----
           # Security: Never echo REQUEST_BODY as it might be logged
 
-                     if [ "$COMMIT_COUNT" -eq 0 ]; then
-             # No commits found - create a simple message
-             REQUEST_BODY=$(jq -n \
-               --arg start "$START" \
-               --arg end "$END" \
-               '{
-                 model: "gpt-4o-mini",
-                 max_tokens: 100,
-                 temperature: 0.3,
-                 messages: [{
-                   role: "user",
-                   content: ($start + " to " + $end + ": No commits found. Return: 📁 No repositories with commits in this period")
-                 }]
-               }')
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            # No commits found - create a simple message
+            REQUEST_BODY=$(jq -n \
+              --arg start "$START" \
+              --arg end "$END" \
+              '{
+                model: "gpt-4o-mini",
+                max_tokens: 100,
+                temperature: 0.3,
+                messages: [{
+                  role: "user",
+                  content: ($start + " to " + $end + ": No commits found. Return: 📁 No repositories with commits in this period")
+                }]
+              }')
           else
-                         # Commits found - analyze them
-             REQUEST_BODY=$(jq -n \
-               --arg commits "$COMMITS" \
-               --arg start "$START" \
-               --arg end "$END" \
-               --arg count "$COMMIT_COUNT" \
-               '{
-                 model: "gpt-4o-mini",
-                 max_tokens: 300,
-                 temperature: 0.3,
-                 messages: [{
-                   role: "user",
-                   content: ("Analyze these " + $count + " git commits and create a concise daily summary focusing on the actual functionality implemented.\n\nRepository Activity:\n" + $commits + "\n\nANALYSIS REQUIREMENTS:\n- Look beyond file names and commit messages\n- Identify the core functionality being implemented\n- Focus on user-facing features, business logic, and system improvements\n- Group related changes by functionality\n- Describe what the code actually does, not what files were changed\n\nEXAMPLES OF GOOD DESCRIPTIONS:\n• 'User authentication system' (not 'Updated auth.js')\n• 'Database connection pooling' (not 'Modified db config')\n• 'Real-time notifications' (not 'Added socket.io')\n• 'API rate limiting' (not 'Updated middleware')\n• 'Data validation rules' (not 'Fixed validation.js')\n\nFORMAT:\n📁 Repo Name (X commits):\n• Core functionality implemented\n• System improvement made\n\n📁 Another Repo (Y commits):\n• Feature enhancement\n\nGenerate the summary:")
-                 }]
-               }')
+            # Commits found - analyze them
+            REQUEST_BODY=$(jq -n \
+              --arg commits "$COMMITS" \
+              --arg start "$START" \
+              --arg end "$END" \
+              --arg count "$COMMIT_COUNT" \
+              '{
+                model: "gpt-4o-mini",
+                max_tokens: 300,
+                temperature: 0.3,
+                messages: [{
+                  role: "user",
+                  content: ("Analyze these " + $count + " git commits and create a concise daily summary focusing on the actual functionality implemented.\n\nRepository Activity:\n" + $commits + "\n\nANALYSIS REQUIREMENTS:\n- Look beyond file names and commit messages\n- Identify the core functionality being implemented\n- Focus on user-facing features, business logic, and system improvements\n- Group related changes by functionality\n- Describe what the code actually does, not what files were changed\n\nEXAMPLES OF GOOD DESCRIPTIONS:\n• 'User authentication system' (not 'Updated auth.js')\n• 'Database connection pooling' (not 'Modified db config')\n• 'Real-time notifications' (not 'Added socket.io')\n• 'API rate limiting' (not 'Updated middleware')\n• 'Data validation rules' (not 'Fixed validation.js')\n\nFORMAT:\n📁 Repo Name (X commits):\n• Core functionality implemented\n• System improvement made\n\n📁 Another Repo (Y commits):\n• Feature enhancement\n\nGenerate the summary:")
+                }]
+              }')
           fi
 
           echo "📝 Prepared API request for $COMMIT_COUNT commits"
@@ -379,26 +379,26 @@ jobs:
             fi
           done
 
-                     # Fallback if API fails
-           if [ -z "$SUMMARY" ]; then
-             echo "⚠️ Using fallback summary"
-             # Handle case where REPO_COUNT might not be defined (fallback scenario)
-             REPO_COUNT_DISPLAY=${REPO_COUNT:-1}
-             
-             if [ "$COMMIT_COUNT" -eq 0 ]; then
-               if [ "$TODAY" -eq 1 ]; then
-                 SUMMARY="📁 No repositories with commits over the weekend"
-               else
-                 SUMMARY="📁 No repositories with commits yesterday"
-               fi
-             else
-               if [ "$TODAY" -eq 1 ]; then
-                 SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories over the weekend"
-               else
-                 SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories yesterday"
-               fi
-             fi
-           fi
+          # Fallback if API fails
+          if [ -z "$SUMMARY" ]; then
+            echo "⚠️ Using fallback summary"
+            # Handle case where REPO_COUNT might not be defined (fallback scenario)
+            REPO_COUNT_DISPLAY=${REPO_COUNT:-1}
+            
+            if [ "$COMMIT_COUNT" -eq 0 ]; then
+              if [ "$TODAY" -eq 1 ]; then
+                SUMMARY="📁 No repositories with commits over the weekend"
+              else
+                SUMMARY="📁 No repositories with commits yesterday"
+              fi
+            else
+              if [ "$TODAY" -eq 1 ]; then
+                SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories over the weekend"
+              else
+                SUMMARY="📁 Completed $COMMIT_COUNT commits across $REPO_COUNT_DISPLAY repositories yesterday"
+              fi
+            fi
+          fi
 
           # Security: Final sanitization before saving
           SUMMARY=$(echo "$SUMMARY" | \
@@ -474,9 +474,9 @@ jobs:
             fi
           fi
 
-                     # Create MessageCard format for Teams/Power Automate
-           CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
-           WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-}"
+          # Create MessageCard format for Teams/Power Automate
+          CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
+          WORKFLOW_URL="https://github.com/${GITHUB_REPOSITORY:-unknown}/actions/runs/${GITHUB_RUN_ID:-}"
            
            # Create MessageCard payload
            PAYLOAD=$(cat <<EOF
@@ -526,9 +526,9 @@ EOF
           MAX_RETRIES=3
           RETRY_DELAY=2
 
-                     # Log webhook attempt
-           echo "📤 Attempting to send webhook..."
-           echo "📋 Using MessageCard format for Teams/Power Automate"
+          # Log webhook attempt
+          echo "📤 Attempting to send webhook..."
+          echo "📋 Using MessageCard format for Teams/Power Automate"
 
           for i in $(seq 1 $MAX_RETRIES); do
             # Security: Send request without exposing URL in logs
@@ -586,7 +586,7 @@ EOF
             # Add production status indicators
             echo "**Status:** ✅ Production Ready" >> $GITHUB_STEP_SUMMARY
             echo "**API Provider:** OpenAI GPT-4o-mini" >> $GITHUB_STEP_SUMMARY
-                         echo "**Webhook Format:** Microsoft Teams MessageCard" >> $GITHUB_STEP_SUMMARY
+            echo "**Webhook Format:** Microsoft Teams MessageCard" >> $GITHUB_STEP_SUMMARY
             echo "$SAFE_SUMMARY" >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
           fi
