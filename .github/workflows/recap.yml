@@ -145,7 +145,7 @@ jobs:
                   echo "📋 First 5 repositories found:"
                   echo "$REPOS" | head -5 | while read -r repo; do
                     if [ -n "$repo" ]; then
-                      echo "   - $repo"
+                      echo "  - $repo"
                     fi
                   done
 
@@ -200,7 +200,7 @@ jobs:
                         if [ -n "$BRANCHES" ]; then
                           while IFS= read -r branch; do
                             if [ -n "$branch" ]; then
-                              echo "    🔍 Checking branch: $branch"
+                              echo "  🔍 Checking branch: $branch"
                               
                               # Get commits for this specific branch
                               BRANCH_COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
@@ -209,7 +209,7 @@ jobs:
                               
                               # Count commits in this branch
                               BRANCH_COMMIT_COUNT=$(echo "$BRANCH_COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
-                              echo "      📝 Found $BRANCH_COMMIT_COUNT commits in branch $branch"
+                              echo "    📝 Found $BRANCH_COMMIT_COUNT commits in branch $branch"
                               
                               # Merge branch commits into repository array (avoid duplicates by SHA)
                               if [ "$BRANCH_COMMIT_COUNT" -gt 0 ]; then
@@ -239,7 +239,7 @@ jobs:
                         
                         # Show first few commits for debugging
                         echo "  📋 First 3 commits (all authors):"
-                        echo "$COMMITS_RESPONSE" | jq -r '.[0:3] | .[] | "    - \(.sha[0:7]) by \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0] | @sh)"' 2>/dev/null | sed "s/'//g" || echo "    No commits found"
+                        echo "$COMMITS_RESPONSE" | jq -r '.[0:3] | .[] | "  - \(.sha[0:7]) by \(.author.login // .commit.author.name): \(.commit.message | split("\n")[0] | @sh)"' 2>/dev/null | sed "s/'//g" || echo "  No commits found"
                         
                         # Extract commit information, filtering to only ethank2222's commits (check both author and committer)
                         REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user or .committer.login == $user) | "• \(.sha[0:7]) [\(.commit.author.date | fromdateiso8601 | strftime("%m/%d"))]: \(.commit.message | split("\n")[0] | @sh)"' 2>/dev/null | sed "s/'//g" || echo "")
@@ -253,23 +253,23 @@ jobs:
                         # Add repository header and commits (or no commits message)
                         if [ -n "$REPO_COMMITS" ] && [ "$REPO_COMMIT_COUNT" -gt 0 ]; then
                           if [ -n "$ALL_COMMITS" ]; then
-                            ALL_COMMITS="$ALL_COMMITS
+                            ALL_COMMITS="${ALL_COMMITS}
 
-📁 **$repo** ($REPO_COMMIT_COUNT commits):
-$REPO_COMMITS"
+📁 **${repo}** (${REPO_COMMIT_COUNT} commits):
+${REPO_COMMITS}"
                           else
-                            ALL_COMMITS="📁 **$repo** ($REPO_COMMIT_COUNT commits):
-$REPO_COMMITS"
+                            ALL_COMMITS="📁 **${repo}** (${REPO_COMMIT_COUNT} commits):
+${REPO_COMMITS}"
                           fi
                           TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
                         else
                           if [ -n "$ALL_COMMITS" ]; then
-                            ALL_COMMITS="$ALL_COMMITS
+                            ALL_COMMITS="${ALL_COMMITS}
 
-📁 **$repo** (0 commits):
+📁 **${repo}** (0 commits):
 • No commits in this period"
                           else
-                            ALL_COMMITS="📁 **$repo** (0 commits):
+                            ALL_COMMITS="📁 **${repo}** (0 commits):
 • No commits in this period"
                           fi
                         fi
