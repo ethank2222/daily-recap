@@ -360,59 +360,15 @@ jobs:
             fi
           fi
 
-          # Security: Payload only contains the summary, no keys or URLs
-          # Enhanced Teams webhook payload with rich formatting
-          CURRENT_TIME=$(date -u +"%B %d, %Y at %I:%M %p UTC")
-          TIME_PERIOD=$(if [ "$COMMIT_COUNT" -gt 0 ]; then echo "Active development"; else echo "Planning/meetings focus"; fi)
-
-          PAYLOAD=$(jq -n \
-            --arg title "$TITLE" \
-            --arg summary "$SUMMARY" \
-            --arg repo_count "$REPO_COUNT" \
-            --arg commit_count "$COMMIT_COUNT" \
-            --arg current_time "$CURRENT_TIME" \
-            --arg time_period "$TIME_PERIOD" \
-            --arg subtitle "Generated on $CURRENT_TIME" \
-            '{
-              "@type": "MessageCard",
-              "@context": "http://schema.org/extensions",
-              "themeColor": "0076D7",
-              "summary": $title,
-              "sections": [
-                {
-                  "activityTitle": $title,
-                  "activitySubtitle": $subtitle,
-                  "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
-                  "facts": [
-                    {
-                      "name": "📚 Repositories Checked",
-                      "value": $repo_count
-                    },
-                    {
-                      "name": "💻 Commits Found",
-                      "value": $commit_count
-                    },
-                    {
-                      "name": "⏰ Time Period",
-                      "value": $time_period
-                    }
-                  ],
-                  "text": $summary
-                }
-              ],
-              "potentialAction": [
-                {
-                  "@type": "OpenUri",
-                  "name": "🔍 View Repository",
-                  "targets": [
-                    {
-                      "os": "default",
-                      "uri": "https://github.com"
-                    }
-                  ]
-                }
-              ]
-            }')
+                     # Simple text payload for better compatibility
+           PAYLOAD=$(jq -n \
+             --arg title "$TITLE" \
+             --arg summary "$SUMMARY" \
+             --arg repo_count "$REPO_COUNT" \
+             --arg commit_count "$COMMIT_COUNT" \
+             '{
+               "text": ($title + "\n\n" + $summary + "\n\n📊 Stats: " + $repo_count + " repos checked, " + $commit_count + " commits found")
+             }')
 
           # Send with retries and exponential backoff
           MAX_RETRIES=3
