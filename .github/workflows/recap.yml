@@ -101,12 +101,44 @@ jobs:
           END_ISO=$(date -u -d "$END" +"%Y-%m-%dT%H:%M:%SZ")
 
                      # Get all repositories the user has access to (increased limit)
+           echo "🔍 Fetching repositories from GitHub API..."
            REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
              -H "Accept: application/vnd.github.v3+json" \
              "https://api.github.com/user/repos?type=all&sort=updated&per_page=200" || echo '[]')
 
+          # Debug: Check if we got a valid response
+          if [ "$REPOS_RESPONSE" = "[]" ]; then
+            echo "❌ Error: No repositories returned from GitHub API"
+            echo "This could be due to:"
+            echo "- Invalid GITHUB_TOKEN"
+            echo "- No repository access"
+            echo "- API rate limiting"
+            exit 1
+          fi
+
           # Extract repository names
           REPOS=$(echo "$REPOS_RESPONSE" | jq -r '.[].full_name' 2>/dev/null || echo "")
+
+          # Debug: Show what we found
+          echo "📋 Raw repository response count: $(echo "$REPOS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")"
+          echo "📋 Extracted repository names count: $(echo "$REPOS" | wc -l)"
+
+                     # Show first few repositories for debugging
+           echo "📋 First 5 repositories found:"
+           echo "$REPOS" | head -5 | while read -r repo; do
+             if [ -n "$repo" ]; then
+               echo "   - $repo"
+             fi
+           done
+           
+           # Show total count and verify we have repositories
+           TOTAL_REPO_COUNT=$(echo "$REPOS" | wc -l)
+           echo "📋 Total repositories to process: $TOTAL_REPO_COUNT"
+           
+           if [ "$TOTAL_REPO_COUNT" -eq 0 ]; then
+             echo "❌ Error: No repositories found to process"
+             exit 1
+           fi
 
           if [ -z "$REPOS" ]; then
             echo "⚠️ Could not fetch repositories. Falling back to current repo only."
@@ -124,9 +156,12 @@ jobs:
             REPO_COUNT=0
 
             # Iterate through each repository
+            echo "🔄 Starting repository iteration..."
+            REPO_INDEX=0
             while IFS= read -r repo; do
               if [ -n "$repo" ]; then
-                echo "🔍 Checking repository: $repo"
+                REPO_INDEX=$((REPO_INDEX + 1))
+                echo "🔍 Checking repository $REPO_INDEX: $repo"
                 
                                  # Get commits for this repository in the time window (all branches, increased limit)
                  COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
@@ -158,10 +193,19 @@ jobs:
               fi
             done <<< "$REPOS"
 
-            COMMITS="$ALL_COMMITS"
-            COMMIT_COUNT=$TOTAL_COMMITS
-            
-            echo "📊 Total: $COMMIT_COUNT commits across $REPO_COUNT repositories"
+                         echo "✅ Repository iteration complete. Processed $REPO_INDEX repositories."
+             
+             # Verify we processed all repositories
+             if [ "$REPO_INDEX" -ne "$TOTAL_REPO_COUNT" ]; then
+               echo "⚠️ Warning: Expected to process $TOTAL_REPO_COUNT repositories but only processed $REPO_INDEX"
+             else
+               echo "✅ Successfully processed all $TOTAL_REPO_COUNT repositories"
+             fi
+             
+             COMMITS="$ALL_COMMITS"
+             COMMIT_COUNT=$TOTAL_COMMITS
+             
+             echo "📊 Total: $COMMIT_COUNT commits across $REPO_COUNT repositories"
           fi
 
           if [ -z "$COMMITS" ] || [ "$COMMIT_COUNT" -eq 0 ]; then
