@@ -48,6 +48,7 @@ jobs:
               id: summary
               env:
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   set -euo pipefail
 
@@ -89,14 +90,66 @@ jobs:
 
                   echo "📅 Collecting commits between $START and $END (UTC)"
 
-                  # ---- Collect commits with better formatting ----
-                  COMMITS=$(git log --since="$START" --until="$END" \
-                    --pretty=format:"• %h by %an: %s" \
-                    --no-merges || true)  # Exclude merge commits for cleaner summary
+                  # ---- Collect commits from all repositories ----
+                  echo "🔍 Fetching commits from all repositories..."
 
-                  # Count commits for metrics
-                  COMMIT_COUNT=$(git log --since="$START" --until="$END" \
-                    --pretty=format:"%h" --no-merges | wc -l || echo "0")
+                  # Convert dates to ISO format for GitHub API
+                  START_ISO=$(date -u -d "$START" +"%Y-%m-%dT%H:%M:%SZ")
+                  END_ISO=$(date -u -d "$END" +"%Y-%m-%dT%H:%M:%SZ")
+
+                  # Get all repositories the user has access to
+                  REPOS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                    -H "Accept: application/vnd.github.v3+json" \
+                    "https://api.github.com/user/repos?type=all&sort=updated&per_page=100" || echo '[]')
+
+                  # Extract repository names
+                  REPOS=$(echo "$REPOS_RESPONSE" | jq -r '.[].full_name' 2>/dev/null || echo "")
+
+                  if [ -z "$REPOS" ]; then
+                    echo "⚠️ Could not fetch repositories. Falling back to current repo only."
+                    # Fallback to current repository
+                    COMMITS=$(git log --since="$START" --until="$END" \
+                      --pretty=format:"• %h by %an: %s" \
+                      --no-merges || true)
+                    COMMIT_COUNT=$(git log --since="$START" --until="$END" \
+                      --pretty=format:"%h" --no-merges | wc -l || echo "0")
+                  else
+                    echo "📚 Found $(echo "$REPOS" | wc -l) repositories to check"
+                    
+                    ALL_COMMITS=""
+                    TOTAL_COMMITS=0
+                    REPO_COUNT=0
+
+                    # Iterate through each repository
+                    while IFS= read -r repo; do
+                      if [ -n "$repo" ]; then
+                        echo "🔍 Checking repository: $repo"
+                        
+                        # Get commits for this repository in the time window
+                        COMMITS_RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
+                          -H "Accept: application/vnd.github.v3+json" \
+                          "https://api.github.com/repos/$repo/commits?since=$START_ISO&until=$END_ISO&per_page=100" || echo '[]')
+                        
+                        # Extract commit information
+                        REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r '.[] | "• \(.sha[0:7]) by \(.commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
+                        
+                        if [ -n "$REPO_COMMITS" ]; then
+                          REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq 'length' 2>/dev/null || echo "0")
+                          echo "  📝 Found $REPO_COMMIT_COUNT commits in $repo"
+                          
+                          # Add repository header and commits
+                          ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** ($REPO_COMMIT_COUNT commits):\n$REPO_COMMITS"
+                          TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
+                          REPO_COUNT=$((REPO_COUNT + 1))
+                        fi
+                      fi
+                    done <<< "$REPOS"
+
+                    COMMITS="$ALL_COMMITS"
+                    COMMIT_COUNT=$TOTAL_COMMITS
+                    
+                    echo "📊 Total: $COMMIT_COUNT commits across $REPO_COUNT repositories"
+                  fi
 
                   if [ -z "$COMMITS" ] || [ "$COMMIT_COUNT" -eq 0 ]; then
                     echo "ℹ️ No commits found for previous workday. Skipping."
@@ -116,11 +169,11 @@ jobs:
                     --arg count "$COMMIT_COUNT" \
                     '{
                       model: "claude-3-5-sonnet-20241022",
-                      max_tokens: 300,
+                      max_tokens: 400,
                       temperature: 0.3,
                       messages: [{
                         role: "user",
-                        content: "Analyze these \($count) git commits and create a standup update that highlights the MOST IMPRESSIVE and IMPORTANT work completed.\n\nCommits:\n\($commits)\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Group minor related commits into one impressive bullet\n\nFORMAT RULES:\n- Generate 2-4 bullets MAX (combine small items)\n- Lead with the most impressive/impactful work\n- Keep high-level (no file names or code details)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n\nExample impressive format:\n- Shipped new customer dashboard with real-time analytics\n- Accelerated API response times by 3x through caching optimization\n- Eliminated critical security vulnerability in authentication flow\n- Streamlined deployment pipeline, reducing release time by 40%\n\nGenerate impressive bullets now:"
+                        content: "Analyze these \($count) git commits across multiple repositories and create a standup update that highlights the MOST IMPRESSIVE and IMPORTANT work completed.\n\nCommits:\n\($commits)\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Group minor related commits into one impressive bullet\n6. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-5 bullets MAX (combine small items)\n- Lead with the most impressive/impactful work\n- Keep high-level (no file names or code details)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Mention repository names when relevant for context\n- Group work by project/theme when possible\n\nExample impressive format:\n- Shipped new customer dashboard with real-time analytics across 3 repositories\n- Accelerated API response times by 3x through caching optimization in backend services\n- Eliminated critical security vulnerability in authentication flow\n- Streamlined deployment pipeline, reducing release time by 40%\n- Coordinated frontend and backend updates for new feature launch\n\nGenerate impressive bullets now:"
                       }]
                     }')
 
@@ -174,10 +227,12 @@ jobs:
                   # Fallback if API fails
                   if [ -z "$SUMMARY" ]; then
                     echo "⚠️ Using fallback summary"
+                    # Handle case where REPO_COUNT might not be defined (fallback scenario)
+                    REPO_COUNT_DISPLAY=${REPO_COUNT:-1}
                     if [ "$TODAY" -eq 1 ]; then
-                      SUMMARY="- Completed $COMMIT_COUNT development tasks over the weekend\n- Various improvements and fixes shipped\n- Details available in commit history"
+                      SUMMARY="- Completed $COMMIT_COUNT development tasks across $REPO_COUNT_DISPLAY repositories over the weekend\n- Various improvements and fixes shipped\n- Details available in commit history"
                     else
-                      SUMMARY="- Completed $COMMIT_COUNT development tasks yesterday\n- Multiple improvements and updates shipped\n- See commit history for specifics"
+                      SUMMARY="- Completed $COMMIT_COUNT development tasks across $REPO_COUNT_DISPLAY repositories yesterday\n- Multiple improvements and updates shipped\n- See commit history for specifics"
                     fi
                   fi
 
@@ -192,6 +247,7 @@ jobs:
                   echo "EOF" >> $GITHUB_OUTPUT
                   echo "SKIP_WEBHOOK=false" >> $GITHUB_OUTPUT
                   echo "TODAY=$TODAY" >> $GITHUB_OUTPUT
+                  echo "REPO_COUNT=${REPO_COUNT:-1}" >> $GITHUB_OUTPUT
 
             - name: Send to webhook
               if: steps.summary.outputs.SKIP_WEBHOOK != 'true'
@@ -199,6 +255,7 @@ jobs:
                   WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
                   SUMMARY: ${{ steps.summary.outputs.SUMMARY }}
                   TODAY: ${{ steps.summary.outputs.TODAY }}
+                  REPO_COUNT: ${{ steps.summary.outputs.REPO_COUNT }}
               run: |
                   set -euo pipefail
 
@@ -238,9 +295,9 @@ jobs:
                   # Prepare payload with proper escaping (no sensitive data included)
                   # Adjust message for Monday (weekend commits) vs other days
                   if [ "$TODAY" -eq 1 ]; then
-                    TITLE="📊 *Weekend & Friday Progress*"
+                    TITLE="📊 *Weekend & Friday Progress* (${REPO_COUNT} repos)"
                   else
-                    TITLE="📊 *Yesterday's Progress*"
+                    TITLE="📊 *Yesterday's Progress* (${REPO_COUNT} repos)"
                   fi
 
                   # Security: Payload only contains the summary, no keys or URLs
@@ -293,6 +350,7 @@ jobs:
                     echo "ℹ️ No commits to summarize" >> $GITHUB_STEP_SUMMARY
                   else
                     echo "### Summary Generated:" >> $GITHUB_STEP_SUMMARY
+                    echo "**Repositories checked:** ${{ steps.summary.outputs.REPO_COUNT }}" >> $GITHUB_STEP_SUMMARY
                     echo '```' >> $GITHUB_STEP_SUMMARY
                     # Security: Only show the generated summary, no API responses or keys
                     SAFE_SUMMARY="${{ steps.summary.outputs.SUMMARY }}"
