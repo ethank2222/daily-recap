@@ -70,9 +70,11 @@ create_teams_payload() {
     local period="$4"
     local url="$5"
     
-    # Format summary for Teams (ensure line breaks)
-    local formatted_summary=$(echo "$summary" | sed 's/• /\n• /g' | sed 's/📁/\n\n📁/g' | sed 's/^\n\n//')
-    local escaped_summary=$(echo "$formatted_summary" | jq -Rs .)
+    # Format summary for Teams - clean up formatting and ensure proper escaping
+    local formatted_summary=$(echo "$summary" | sed 's/• /\n• /g' | sed 's/📁/\n\n📁/g' | sed 's/^\n\n//' | tr -d '\r')
+    # Ensure the summary doesn't have any problematic characters
+    formatted_summary=$(echo "$formatted_summary" | sed 's/"/\\"/g')
+    local escaped_summary=$(echo "$formatted_summary" | jq -Rs . 2>/dev/null || echo "\"Error formatting summary\"")
     
     # Detect Teams webhook version
     if echo "$WEBHOOK_URL" | grep -q "webhook.office.com/webhookb2"; then
@@ -232,17 +234,30 @@ send_webhook() {
     local retry_delay=2
     
     echo "📤 Attempting to send webhook..."
-    echo "📋 Using Teams Webhook format with AdaptiveCard"
+    echo "📋 Using Teams Webhook format"
+    
+    # Debug: Show payload size (without content)
+    local payload_size=$(echo "$payload" | wc -c)
+    echo "📊 Payload size: $payload_size characters"
     
     for i in $(seq 1 $max_retries); do
-        # Send request
-        local http_status=$(curl -s -o /dev/null -w "%{http_code}" \
-            --max-time 10 \
+        # Send request and capture both status and response
+        local response_file=$(mktemp)
+        local http_status=$(curl -s -w "%{http_code}" \
+            --max-time 15 \
             -X POST \
             -H "Content-Type: application/json; charset=utf-8" \
             -H "Accept: application/json" \
             -d "$payload" \
-            "$WEBHOOK_URL" 2>/dev/null || echo "000")
+            "$WEBHOOK_URL" \
+            -o "$response_file" 2>/dev/null || echo "000")
+        
+        # Read response for debugging (safely)
+        local response_content=""
+        if [ -f "$response_file" ]; then
+            response_content=$(cat "$response_file" 2>/dev/null | head -c 500)
+            rm -f "$response_file"
+        fi
         
         # Check for success
         if [[ "$http_status" =~ ^2[0-9][0-9]$ ]]; then
@@ -251,6 +266,37 @@ send_webhook() {
         fi
         
         echo "⚠️ Webhook delivery failed (HTTP $http_status, attempt $i/$max_retries)"
+        
+        # Show sanitized error response for debugging
+        if [ -n "$response_content" ] && [ "$http_status" != "000" ]; then
+            echo "🔍 Response preview: $(echo "$response_content" | tr '\n' ' ' | cut -c1-200)..."
+        fi
+        
+        # Specific error handling based on status code
+        case "$http_status" in
+            "400")
+                echo "📋 HTTP 400: Bad Request - Payload format issue"
+                ;;
+            "401")
+                echo "📋 HTTP 401: Unauthorized - Check webhook URL"
+                ;;
+            "403")
+                echo "📋 HTTP 403: Forbidden - Check Teams permissions"
+                ;;
+            "404")
+                echo "📋 HTTP 404: Not Found - Webhook URL may be expired"
+                ;;
+            "413")
+                echo "📋 HTTP 413: Payload Too Large - Reduce summary length"
+                ;;
+            "429")
+                echo "📋 HTTP 429: Rate Limited - Will retry with longer delay"
+                retry_delay=$((retry_delay * 3))
+                ;;
+            "000")
+                echo "📋 Network error - Connection failed"
+                ;;
+        esac
         
         if [ $i -lt $max_retries ]; then
             echo "Retrying in ${retry_delay}s..."
@@ -265,6 +311,7 @@ send_webhook() {
     echo "- Webhook URL is invalid or expired"
     echo "- Teams channel permissions are incorrect"
     echo "- Network connectivity issues"
+    echo "- Payload format or size issues"
     return 1
 }
 
@@ -318,7 +365,30 @@ main() {
     fi
     
     # Send webhook
-    send_webhook "$PAYLOAD"
+    if ! send_webhook "$PAYLOAD"; then
+        echo "🔄 Trying with simplified message format..."
+        
+        # Create a simplified fallback payload for Teams
+        SIMPLE_PAYLOAD=$(jq -n \
+            --arg title "$TITLE" \
+            --arg summary "$SUMMARY" \
+            --arg commits "$COMMIT_COUNT" \
+            --arg repos "$REPO_COUNT" \
+            '{
+                "@type": "MessageCard",
+                "@context": "https://schema.org/extensions",
+                "themeColor": "0078D4",
+                "summary": ("Daily Summary: " + $commits + " commits"),
+                "sections": [{
+                    "activityTitle": $title,
+                    "activitySubtitle": ("Found " + $commits + " commits across " + $repos + " repositories"),
+                    "text": $summary
+                }]
+            }')
+        
+        echo "📤 Sending simplified payload..."
+        send_webhook "$SIMPLE_PAYLOAD" || echo "❌ Both complex and simple payloads failed"
+    fi
 }
 
 # Run main function
