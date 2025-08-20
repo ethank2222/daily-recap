@@ -138,29 +138,35 @@ jobs:
                           -H "Accept: application/vnd.github.v3+json" \
                           "https://api.github.com/user" | jq -r '.login' 2>/dev/null || echo "")
                         
-                        # Extract commit information, filtering to only current user's commits
+                                                # Extract commit information, filtering to only current user's commits
                         if [ -n "$CURRENT_USER" ]; then
-                          REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]) by \(.commit.author.name): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
+                          REPO_COMMITS=$(echo "$COMMITS_RESPONSE" | jq -r --arg user "$CURRENT_USER" '.[] | select(.author.login == $user) | "• \(.sha[0:7]): \(.commit.message | split("\n")[0])"' 2>/dev/null || echo "")
                         else
                           # Fallback if we can't get current user - skip this repo
                           echo "  ⚠️ Could not determine current user, skipping $repo"
                           REPO_COMMITS=""
                         fi
                 
-                                        if [ -n "$REPO_COMMITS" ]; then
-                          # Count only current user's commits
-                          if [ -n "$CURRENT_USER" ]; then
-                            REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user)] | length' 2>/dev/null || echo "0")
-                          else
-                            REPO_COMMIT_COUNT=0
-                          fi
-                          echo "  📝 Found $REPO_COMMIT_COUNT of your commits in $repo"
-                  
-                  # Add repository header and commits
-                  ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** ($REPO_COMMIT_COUNT commits):\n$REPO_COMMITS"
-                  TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
-                  REPO_COUNT=$((REPO_COUNT + 1))
-                fi
+                        # Count only current user's commits
+                        if [ -n "$CURRENT_USER" ]; then
+                          REPO_COMMIT_COUNT=$(echo "$COMMITS_RESPONSE" | jq --arg user "$CURRENT_USER" '[.[] | select(.author.login == $user)] | length' 2>/dev/null || echo "0")
+                        else
+                          REPO_COMMIT_COUNT=0
+                        fi
+                        
+                        # Always show repository status, even if no commits
+                        echo "  📝 Found $REPO_COMMIT_COUNT of your commits in $repo"
+                        
+                        # Add repository header and commits (or no commits message)
+                        if [ -n "$REPO_COMMITS" ] && [ "$REPO_COMMIT_COUNT" -gt 0 ]; then
+                          ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** ($REPO_COMMIT_COUNT commits):\n$REPO_COMMITS"
+                          TOTAL_COMMITS=$((TOTAL_COMMITS + REPO_COMMIT_COUNT))
+                        else
+                          ALL_COMMITS="${ALL_COMMITS}\n\n📁 **$repo** (0 commits):\n• No commits in this period"
+                        fi
+                        
+                        # Always increment repo count since we're checking every repo
+                        REPO_COUNT=$((REPO_COUNT + 1))
               fi
             done <<< "$REPOS"
 
@@ -206,10 +212,10 @@ jobs:
                 model: "claude-3-5-sonnet-20241022",
                 max_tokens: 400,
                 temperature: 0.3,
-                messages: [{
-                  role: "user",
-                  content: "Analyze these \($count) git commits across multiple repositories and create a standup update that highlights the MOST IMPRESSIVE and IMPORTANT work completed.\n\nCommits:\n\($commits)\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Group minor related commits into one impressive bullet\n6. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-5 bullets MAX (combine small items)\n- Lead with the most impressive/impactful work\n- Keep high-level (no file names or code details)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Mention repository names when relevant for context\n- Group work by project/theme when possible\n\nExample impressive format:\n- Shipped new customer dashboard with real-time analytics across 3 repositories\n- Accelerated API response times by 3x through caching optimization in backend services\n- Eliminated critical security vulnerability in authentication flow\n- Streamlined deployment pipeline, reducing release time by 40%\n- Coordinated frontend and backend updates for new feature launch\n\nGenerate impressive bullets now:"
-                }]
+                                 messages: [{
+                   role: "user",
+                   content: "Analyze these \($count) git commits across multiple repositories and create a comprehensive standup update.\n\nRepository Activity:\n\($commits)\n\nANALYSIS REQUIREMENTS:\n1. Review ALL repositories listed (including those with 0 commits)\n2. Identify the MOST IMPRESSIVE and IMPORTANT work completed\n3. Group related commits by repository and functionality\n4. Highlight cross-repository work and dependencies\n5. Mention specific repository names for context\n\nPRIORITIZATION RULES:\n1. Feature additions > bug fixes > refactoring > documentation\n2. User-facing changes > backend improvements > internal tooling\n3. Performance improvements with metrics > general fixes\n4. Security enhancements > other changes\n5. Cross-repository work > single repository work\n\nFORMAT RULES:\n- Generate 3-6 bullets (combine small items)\n- Lead with the most impressive/impactful work\n- Keep technical but high-level (no file paths, but mention key technologies)\n- Each bullet readable in one breath\n- Use strong action verbs (launched, shipped, accelerated, eliminated, implemented)\n- Quantify improvements when evident (\"10x faster\", \"reduced by 50%\")\n- Always mention repository names for context\n- Group work by project/theme when possible\n- Include brief technical descriptions\n\nExample format:\n- Implemented real-time data synchronization in user-dashboard repo, reducing API calls by 60%\n- Fixed critical authentication bug in auth-service repo affecting 3 dependent repositories\n- Enhanced error handling and logging across backend services (api-gateway, user-service)\n- Updated documentation and deployment scripts in devops-tools repo\n- No activity in monitoring-dashboard repo (planned for next sprint)\n\nGenerate comprehensive bullets now:"
+                 }]
               }')
           fi
 
@@ -339,29 +345,68 @@ jobs:
 
           echo "📤 Sending summary to webhook..."
 
-          # Prepare payload with proper escaping (no sensitive data included)
-          # Adjust message for Monday (weekend commits) vs other days
-          if [ "$COMMIT_COUNT" -eq 0 ]; then
-            if [ "$TODAY" -eq 1 ]; then
-              TITLE="📊 *Weekend & Friday Progress* (${REPO_COUNT} repos, no commits)"
-            else
-              TITLE="📊 *Yesterday's Progress* (${REPO_COUNT} repos, no commits)"
-            fi
-          else
-            if [ "$TODAY" -eq 1 ]; then
-              TITLE="📊 *Weekend & Friday Progress* (${REPO_COUNT} repos, ${COMMIT_COUNT} commits)"
-            else
-              TITLE="📊 *Yesterday's Progress* (${REPO_COUNT} repos, ${COMMIT_COUNT} commits)"
-            fi
-          fi
+                     # Prepare payload with proper escaping (no sensitive data included)
+           # Adjust message for Monday (weekend commits) vs other days
+           if [ "$COMMIT_COUNT" -eq 0 ]; then
+             if [ "$TODAY" -eq 1 ]; then
+               TITLE="🚀 **Weekend & Friday Development Summary**"
+             else
+               TITLE="🚀 **Yesterday's Development Summary**"
+             fi
+           else
+             if [ "$TODAY" -eq 1 ]; then
+               TITLE="🚀 **Weekend & Friday Development Summary**"
+             else
+               TITLE="🚀 **Yesterday's Development Summary**"
+             fi
+           fi
 
                      # Security: Payload only contains the summary, no keys or URLs
-           # Modified to include body for Teams webhook compatibility
+           # Enhanced Teams webhook payload with rich formatting
            PAYLOAD=$(jq -n \
-             --arg text "$TITLE\n\n$SUMMARY" \
+             --arg title "$TITLE" \
+             --arg summary "$SUMMARY" \
+             --arg repo_count "$REPO_COUNT" \
+             --arg commit_count "$COMMIT_COUNT" \
              '{
-               text: $text,
-               body: $text
+               "@type": "MessageCard",
+               "@context": "http://schema.org/extensions",
+               "themeColor": "0076D7",
+               "summary": $title,
+               "sections": [
+                 {
+                   "activityTitle": $title,
+                   "activitySubtitle": "Generated on " + (now | strftime("%B %d, %Y at %I:%M %p UTC")),
+                   "activityImage": "https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png",
+                   "facts": [
+                     {
+                       "name": "📚 Repositories Checked",
+                       "value": $repo_count
+                     },
+                     {
+                       "name": "💻 Commits Found",
+                       "value": $commit_count
+                     },
+                     {
+                       "name": "⏰ Time Period",
+                       "value": (if ($commit_count | tonumber) > 0 then "Active development" else "Planning/meetings focus" end)
+                     }
+                   ],
+                   "text": $summary
+                 }
+               ],
+               "potentialAction": [
+                 {
+                   "@type": "OpenUri",
+                   "name": "🔍 View Repository",
+                   "targets": [
+                     {
+                       "os": "default",
+                       "uri": "https://github.com"
+                     }
+                   ]
+                 }
+               ]
              }')
 
           # Send with retries and exponential backoff
