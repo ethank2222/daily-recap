@@ -11,8 +11,15 @@ else
     COMMITS_DATA=$(cat)
 fi
 
+# Validate input JSON
+if ! echo "$COMMITS_DATA" | jq . >/dev/null 2>&1; then
+    echo "Error: Invalid JSON input" >&2
+    echo '{"summary": "Failed to parse commit data", "commit_count": 0, "repo_count": 0, "bullet_points": ""}'
+    exit 0
+fi
+
 # Check if there are any commits
-COMMIT_COUNT=$(echo "$COMMITS_DATA" | jq '. | length' || echo "0")
+COMMIT_COUNT=$(echo "$COMMITS_DATA" | jq '. | length' 2>/dev/null || echo "0")
 
 if [ "$COMMIT_COUNT" -eq 0 ] || [ "$COMMIT_COUNT" = "null" ]; then
     echo "No commits found for the specified period" >&2
