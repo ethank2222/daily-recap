@@ -75,12 +75,12 @@ fi
 
 # Verify the GitHub token works
 echo "Authenticating with GitHub API..." >&2
-AUTH_USER=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+AUTH_USER=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
     "https://api.github.com/user" | jq -r '.login' || echo "")
 
 if [ -z "$AUTH_USER" ] || [ "$AUTH_USER" = "null" ]; then
     echo "Error: Failed to authenticate with GitHub. Please check TOKEN_GITHUB" >&2
-    echo "Response received: $(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" "https://api.github.com/user")" >&2
+    echo "Response received: $(curl -s -H "Authorization: token $TOKEN_GITHUB" "https://api.github.com/user")" >&2
     exit 1
 fi
 
@@ -89,7 +89,7 @@ echo "Fetching commits for author: $AUTHOR_ACCOUNT from all branches" >&2
 
 # Test basic API access
 echo "Testing basic API access..." >&2
-TEST_REPOS=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+TEST_REPOS=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
     "https://api.github.com/user/repos?per_page=1" \
     2>/dev/null || echo "[]")
 
@@ -154,17 +154,30 @@ fetch_repo_commits() {
     echo "  Date range: $since_utc to $until_utc (UTC)" >&2
     echo "  Local date range: $SINCE_DATE 00:00 to $UNTIL_DATE 23:59 (Pacific Time)" >&2
     
-    # Start with default branch commits
-    echo "  Fetching commits from default branch..." >&2
-    local all_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+    # Start with default branch commits (with date filter)
+    echo "  Fetching commits from default branch (date filtered)..." >&2
+    local all_commits=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
         "https://api.github.com/repos/$repo_name/commits?author=$AUTHOR_ACCOUNT&since=$since_utc&until=$until_utc" \
         2>/dev/null || echo "[]")
+    
+    # Also search for ALL commits by the author (no date filter) to see if there are any commits at all
+    echo "  Fetching ALL commits by author (no date filter)..." >&2
+    local all_author_commits=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+        "https://api.github.com/repos/$repo_name/commits?author=$AUTHOR_ACCOUNT&per_page=5" \
+        2>/dev/null || echo "[]")
+    
+    local all_author_count=$(echo "$all_author_commits" | jq '. | length' 2>/dev/null || echo "0")
+    if [ "$all_author_count" -gt 0 ]; then
+        echo "  Found $all_author_count commits by author in this repository (any date)" >&2
+        local most_recent=$(echo "$all_author_commits" | jq -r '.[0].commit.author.date' 2>/dev/null || echo "unknown")
+        echo "  Most recent commit date: $most_recent" >&2
+    fi
     
     # If no commits found with author filter, try without author filter to see if there are any commits
     local commit_count=$(echo "$all_commits" | jq '. | length' 2>/dev/null || echo "0")
     if [ "$commit_count" -eq 0 ]; then
         echo "  No commits found with author filter, checking for any commits in date range..." >&2
-        local any_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+        local any_commits=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
             "https://api.github.com/repos/$repo_name/commits?since=$since_utc&until=$until_utc&per_page=5" \
             2>/dev/null || echo "[]")
         local any_count=$(echo "$any_commits" | jq '. | length' 2>/dev/null || echo "0")
@@ -173,17 +186,17 @@ fetch_repo_commits() {
         else
             echo "  No commits found in date range at all" >&2
             
-            # Try a broader search - look back 3 days to see if there are any recent commits
-            echo "  Trying broader search (last 3 days)..." >&2
-            local broader_since=$(date -d "3 days ago" +%Y-%m-%d 2>/dev/null || date -v-3d +%Y-%m-%d 2>/dev/null || echo "")
+            # Try a broader search - look back 7 days to see if there are any recent commits
+            echo "  Trying broader search (last 7 days)..." >&2
+            local broader_since=$(date -d "7 days ago" +%Y-%m-%d 2>/dev/null || date -v-7d +%Y-%m-%d 2>/dev/null || echo "")
             if [ -n "$broader_since" ]; then
                 local broader_since_utc="${broader_since}T07:00:00Z"
-                local broader_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
-                    "https://api.github.com/repos/$repo_name/commits?author=$AUTHOR_ACCOUNT&since=$broader_since_utc&per_page=10" \
+                local broader_commits=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+                    "https://api.github.com/repos/$repo_name/commits?author=$AUTHOR_ACCOUNT&since=$broader_since_utc&per_page=20" \
                     2>/dev/null || echo "[]")
                 local broader_count=$(echo "$broader_commits" | jq '. | length' 2>/dev/null || echo "0")
                 if [ "$broader_count" -gt 0 ]; then
-                    echo "  Found $broader_count commits by author in last 3 days" >&2
+                    echo "  Found $broader_count commits by author in last 7 days" >&2
                     echo "  Most recent commit: $(echo "$broader_commits" | jq -r '.[0].commit.message' 2>/dev/null | head -c 50)" >&2
                 fi
             fi
@@ -201,7 +214,7 @@ fetch_repo_commits() {
     
     # Get all branches
     echo "  Fetching branch list..." >&2
-    local branches=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+    local branches=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
         "https://api.github.com/repos/$repo_name/branches?per_page=100" \
         2>/dev/null || echo "[]")
     
@@ -217,7 +230,7 @@ fetch_repo_commits() {
                 if [ -n "$branch_name" ] && [ "$branch_name" != "null" ]; then
                     echo "  Checking branch: $branch_name" >&2
                     
-                    local branch_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+                    local branch_commits=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
                         "https://api.github.com/repos/$repo_name/commits?sha=$branch_name&author=$AUTHOR_ACCOUNT&since=$since_utc&until=$until_utc" \
                         2>/dev/null || echo "[]")
                     
@@ -249,7 +262,7 @@ fetch_repo_commits() {
                     
                     if [ -n "$sha" ] && [ "$sha" != "null" ] && [ -n "$message" ]; then
                         # Get commit details including files changed
-                        local commit_detail=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+                        local commit_detail=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
                             "https://api.github.com/repos/$repo_name/commits/$sha" \
                             2>/dev/null || echo "{}")
                         
@@ -282,9 +295,11 @@ fetch_repo_commits() {
 }
 
 # Fetch all repositories the user has access to
+echo "Fetching all repositories..." >&2
 page=1
+total_repos=0
 while true; do
-    repos=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+    repos=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
         "https://api.github.com/user/repos?per_page=100&page=$page&type=all" \
         2>/dev/null || echo "[]")
     
@@ -294,6 +309,9 @@ while true; do
     
     # Process each repository
     local repo_count=$(echo "$repos" | jq '. | length' 2>/dev/null || echo "0")
+    total_repos=$((total_repos + repo_count))
+    echo "Processing page $page with $repo_count repositories (total: $total_repos)" >&2
+    
     if [ "$repo_count" -gt 0 ]; then
         for i in $(seq 0 $((repo_count - 1))); do
             local repo=$(echo "$repos" | jq -c ".[$i]" 2>/dev/null || echo "{}")
@@ -311,8 +329,11 @@ while true; do
     page=$((page + 1))
 done
 
+echo "Completed processing $total_repos total repositories" >&2
+
 # Also check organizations
-orgs=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+echo "Fetching organization repositories..." >&2
+orgs=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
     "https://api.github.com/user/orgs" \
     2>/dev/null || echo "[]")
 
@@ -323,7 +344,7 @@ if echo "$orgs" | jq . >/dev/null 2>&1 && [ "$orgs" != "[]" ] && [ -n "$orgs" ];
             
             page=1
             while true; do
-                org_repos=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+                org_repos=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
                     "https://api.github.com/orgs/$org/repos?per_page=100&page=$page" \
                     2>/dev/null || echo "[]")
                 
