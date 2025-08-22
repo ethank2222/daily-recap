@@ -8,14 +8,33 @@ on:
 jobs:
     generate-recap:
         runs-on: ubuntu-latest
+        timeout-minutes: 30 # Prevent hanging jobs
 
         steps:
             - name: Checkout repository
               uses: actions/checkout@v4
 
-            - name: Set up environment
+                        - name: Set up environment
               run: |
+                  echo "Setting up environment..."
                   chmod +x .github/scripts/*.sh
+                  echo "Scripts made executable"
+                  
+                  # Verify required tools
+                  echo "Checking required tools..."
+                  jq --version
+                  curl --version
+                  echo "All required tools available"
+
+            - name: Test setup
+              env:
+                  TOKEN_GITHUB: ${{ secrets.TOKEN_GITHUB }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+              run: |
+                  echo "Testing setup..."
+                  bash .github/scripts/test-setup.sh
+                  echo "Setup validation completed"
 
             - name: Generate daily recap
               env:
@@ -23,4 +42,19 @@ jobs:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
               run: |
+                  echo "Starting daily recap generation..."
+                  echo "Environment variables set."
+
                   bash .github/scripts/daily-recap.sh
+
+                  echo "Daily recap generation completed"
+
+            - name: Upload logs on failure
+              if: failure()
+              uses: actions/upload-artifact@v3
+              with:
+                  name: daily-recap-logs
+                  path: |
+                      /tmp/daily_commits_*.json
+                      /tmp/daily_summary_*.json
+                  retention-days: 7

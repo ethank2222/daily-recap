@@ -28,6 +28,8 @@ if [ "$COMMIT_COUNT" -eq 0 ] || [ "$COMMIT_COUNT" = "null" ]; then
     exit 0
 fi
 
+echo "Processing $COMMIT_COUNT commits for summary generation..." >&2
+
 # Group commits by repository
 REPOS=$(echo "$COMMITS_DATA" | jq -r '[.[].repository] | unique | .[]')
 REPO_COUNT=$(echo "$COMMITS_DATA" | jq '[.[].repository] | unique | length')
@@ -57,10 +59,13 @@ while IFS= read -r repo; do
     COMMIT_COUNT_REPO=$(echo "$REPO_COMMITS" | jq '. | length')
     for i in $(seq 0 $((COMMIT_COUNT_REPO - 1))); do
         commit=$(echo "$REPO_COMMITS" | jq -c ".[$i]")
-        MESSAGE=$(echo "$commit" | jq -r '.message')
-        FILES=$(echo "$commit" | jq -r '.files[].filename' | paste -sd ", " -)
+        MESSAGE=$(echo "$commit" | jq -r '.message // ""')
+        FILES=$(echo "$commit" | jq -r '.files[].filename // ""' | paste -sd ", " -)
         ADDITIONS=$(echo "$commit" | jq -r '.stats.additions // 0')
         DELETIONS=$(echo "$commit" | jq -r '.stats.deletions // 0')
+        
+        # Clean the message to prevent issues
+        MESSAGE=$(echo "$MESSAGE" | tr -d '\r' | sed 's/"/\\"/g')
         
         REPO_INFO="${REPO_INFO}Commit: $MESSAGE\nFiles changed: $FILES\nLines: +$ADDITIONS -$DELETIONS\n\n"
     done
@@ -72,7 +77,8 @@ done <<< "$REPOS"
 FULL_PROMPT="${CHATGPT_PROMPT}\n\n${REPO_SUMMARIES}"
 
 # Call ChatGPT API
-RESPONSE=$(curl -s -X POST "https://api.openai.com/v1/chat/completions" \
+echo "Calling ChatGPT API for summary generation..." >&2
+RESPONSE=$(curl -s --max-time 60 -X POST "https://api.openai.com/v1/chat/completions" \
     -H "Authorization: Bearer $OPENAI_API_KEY" \
     -H "Content-Type: application/json" \
     -d "$(jq -n \
@@ -94,13 +100,15 @@ RESPONSE=$(curl -s -X POST "https://api.openai.com/v1/chat/completions" \
         }')" \
     2>/dev/null || echo '{"error": "Failed to call ChatGPT API"}')
 
+echo "ChatGPT API response received" >&2
+
 # Check for errors
 if echo "$RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
     echo "Warning: ChatGPT API error, using fallback summary" >&2
     
     # Fallback to basic summary
     SUMMARY="Development activity summary ($COMMIT_COUNT commits across $REPO_COUNT repositories)"
-    BULLET_POINTS=$(echo "$COMMITS_DATA" | jq -r '[.[] | "- " + .repository + ": " + .message] | unique | .[]')
+    BULLET_POINTS=$(echo "$COMMITS_DATA" | jq -r '[.[] | "- " + .repository + ": " + (.message // "")] | unique | .[]' 2>/dev/null || echo "")
 else
     # Extract the summary from ChatGPT response
     SUMMARY=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // "Summary generation failed"')

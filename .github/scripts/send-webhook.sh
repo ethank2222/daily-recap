@@ -19,12 +19,38 @@ BULLET_POINTS=$(echo "$SUMMARY_DATA" | jq -r '.bullet_points // ""')
 # Set timezone to Pacific Time
 export TZ='America/Los_Angeles'
 
-# Get the date for the summary in Pacific Time
-if [ "$(date +%u)" -eq 1 ]; then
-    SUMMARY_DATE="Friday, $(date -d "last Friday" +"%B %d, %Y")"
-else
-    SUMMARY_DATE="$(date -d "yesterday" +"%A, %B %d, %Y")"
-fi
+# Get the date for the summary in Pacific Time (cross-platform compatible)
+get_summary_date() {
+    local day_of_week=$(date +%u)
+    
+    if [ "$day_of_week" -eq 1 ]; then
+        # It's Monday, look at Friday
+        if command -v gdate &> /dev/null; then
+            # macOS with coreutils
+            SUMMARY_DATE="Friday, $(gdate -d "last Friday" +"%B %d, %Y")"
+        elif date --version &> /dev/null; then
+            # Linux GNU date
+            SUMMARY_DATE="Friday, $(date -d "last Friday" +"%B %d, %Y")"
+        else
+            # BSD/macOS default date
+            SUMMARY_DATE="Friday, $(date -v-3d +"%B %d, %Y")"
+        fi
+    else
+        # Look at yesterday
+        if command -v gdate &> /dev/null; then
+            # macOS with coreutils
+            SUMMARY_DATE="$(gdate -d "yesterday" +"%A, %B %d, %Y")"
+        elif date --version &> /dev/null; then
+            # Linux GNU date
+            SUMMARY_DATE="$(date -d "yesterday" +"%A, %B %d, %Y")"
+        else
+            # BSD/macOS default date
+            SUMMARY_DATE="$(date -v-1d +"%A, %B %d, %Y")"
+        fi
+    fi
+}
+
+get_summary_date
 
 # Create the adaptive card body
 if [ "$COMMIT_COUNT" -eq 0 ]; then
@@ -119,11 +145,14 @@ WEBHOOK_PAYLOAD=$(jq -n \
 
 # Send to Teams webhook
 echo "Sending summary to MS Teams..." >&2
+echo "Webhook URL: ${WEBHOOK_URL:0:20}..." >&2
 
-RESPONSE=$(curl -s -X POST "$WEBHOOK_URL" \
+RESPONSE=$(curl -s --max-time 30 -X POST "$WEBHOOK_URL" \
     -H "Content-Type: application/json" \
     -d "$WEBHOOK_PAYLOAD" \
     2>/dev/null)
+
+echo "Webhook response received" >&2
 
 # Check response
 if [ "$RESPONSE" = "1" ] || [ -z "$RESPONSE" ]; then

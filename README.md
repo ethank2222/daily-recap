@@ -1,91 +1,207 @@
 # Daily Development Recap
 
-Automated GitHub Actions workflow that generates daily development summaries and sends them to Microsoft Teams.
+A GitHub Actions workflow that automatically generates daily development summaries by analyzing commits across all accessible repositories and sending them to Microsoft Teams.
 
 ## Features
 
-- Runs automatically every day at 7:00 AM (configurable)
-- Fetches commits from the previous workday (handles weekends automatically)
-- Scans ALL repositories the user has access to (personal and organization repos)
-- Uses AI (ChatGPT) to generate intelligent, prioritized summaries
-- Sends formatted reports to Microsoft Teams via webhook
-- Manual triggering available for testing
-
-## Setup
-
-### 1. GitHub Secrets
-
-Add the following secrets to your repository:
-
-- **`TOKEN_GITHUB`** - GitHub Personal Access Token
-  - Required scopes: `repo`, `read:org`
-  - Create at: https://github.com/settings/tokens
-
-- **`OPENAI_API_KEY`** - OpenAI API Key
-  - Get from: https://platform.openai.com/api-keys
-  - Model used: gpt-4o-mini (for cost efficiency)
-
-- **`WEBHOOK_URL`** - Microsoft Teams Incoming Webhook URL
-  - Create in Teams: Channel → Connectors → Incoming Webhook
-  - Format: `https://outlook.office.com/webhook/...`
-
-### 2. Schedule Configuration
-
-The workflow runs at 7:00 AM Pacific Time by default. To change:
-
-Edit `.github/workflows/daily-recap.yml`:
-```yaml
-schedule:
-  - cron: '0 15 * * *'  # 7 AM PT (UTC-8)
-```
-
-Use [crontab.guru](https://crontab.guru/) to calculate your desired schedule.
-
-## Manual Testing
-
-Trigger the workflow manually:
-1. Go to Actions tab in your repository
-2. Select "Daily Development Recap"
-3. Click "Run workflow"
+-   **Cross-platform compatibility**: Works on Linux, macOS, and Windows
+-   **Comprehensive commit analysis**: Fetches commits from all branches across all accessible repositories
+-   **AI-powered summaries**: Uses ChatGPT to generate intelligent, concise summaries
+-   **MS Teams integration**: Sends formatted summaries via webhook
+-   **Robust error handling**: Graceful fallbacks and detailed logging
+-   **Rate limit protection**: Handles GitHub API rate limits automatically
+-   **Timezone support**: Configurable for different time zones
 
 ## How It Works
 
-1. **Fetch Commits** (`fetch-commits.sh`)
-   - Determines the date range (yesterday, or Friday if today is Monday)
-   - Fetches all repositories accessible to the user
-   - Retrieves commit details including files changed and statistics
+1. **Commit Fetching**: Scans all repositories and branches for commits from the previous workday
+2. **Data Processing**: Extracts commit messages, files changed, and statistics
+3. **AI Summary**: Uses ChatGPT to generate a human-readable summary
+4. **Delivery**: Sends the summary to MS Teams via webhook
 
-2. **Generate Summary** (`generate-summary.sh`)
-   - Processes all commits through ChatGPT
-   - Creates prioritized, meaningful bullet points
-   - Groups related changes together
+## Setup
 
-3. **Send to Teams** (`send-webhook.sh`)
-   - Formats the summary as an Adaptive Card
-   - Sends to the configured Teams channel
+### 1. Repository Setup
 
-## Output Example
+Clone this repository and ensure the following structure:
 
-The Teams message includes:
-- Date of activity
-- Total commits and repositories affected
-- AI-generated summary with prioritized changes
-- Specific file mentions for bug fixes
+```
+.github/
+├── scripts/
+│   ├── daily-recap.sh          # Main orchestrator
+│   ├── fetch-commits.sh        # GitHub API integration
+│   ├── generate-summary.sh     # ChatGPT integration
+│   ├── send-webhook.sh         # MS Teams webhook
+│   └── debug-json.sh           # Debugging utility
+└── workflows/
+    └── daily-recap.yml         # GitHub Actions workflow
+```
+
+### 2. GitHub Secrets
+
+Set up the following secrets in your GitHub repository:
+
+-   `TOKEN_GITHUB`: GitHub Personal Access Token with `repo` and `read:org` scopes
+-   `OPENAI_API_KEY`: OpenAI API key for ChatGPT access
+-   `WEBHOOK_URL`: MS Teams webhook URL
+
+### 3. MS Teams Webhook
+
+1. In your MS Teams channel, click the "..." menu
+2. Select "Connectors"
+3. Find "Incoming Webhook" and configure it
+4. Copy the webhook URL to your GitHub secrets
+
+## Configuration
+
+### Schedule
+
+The workflow runs daily at 7:00 AM Pacific Time by default. To modify:
+
+```yaml
+on:
+    schedule:
+        - cron: "0 15 * * *" # UTC time (7:00 AM PT = 15:00 UTC)
+```
+
+### Timezone
+
+All operations use Pacific Time by default. To change:
+
+```bash
+export TZ='America/New_York'  # For Eastern Time
+```
+
+### Date Range Logic
+
+-   **Monday**: Looks at Friday's commits
+-   **Other days**: Looks at yesterday's commits
+
+## Scripts Overview
+
+### daily-recap.sh
+
+Main orchestrator that:
+
+-   Validates environment variables
+-   Coordinates the entire process
+-   Provides detailed logging
+-   Handles cleanup
+
+### fetch-commits.sh
+
+GitHub API integration that:
+
+-   Authenticates with GitHub
+-   Fetches commits from all accessible repositories
+-   Handles rate limiting
+-   Processes multiple branches
+-   Extracts commit details
+
+### generate-summary.sh
+
+ChatGPT integration that:
+
+-   Processes commit data
+-   Generates intelligent summaries
+-   Handles API errors gracefully
+-   Formats output for Teams
+
+### send-webhook.sh
+
+MS Teams integration that:
+
+-   Creates adaptive cards
+-   Sends formatted messages
+-   Handles webhook responses
+-   Provides delivery confirmation
 
 ## Troubleshooting
 
-- **No commits found**: Check if the user has made commits in the date range
-- **Authentication failed**: Verify TOKEN_GITHUB has proper permissions
-- **ChatGPT errors**: Check OPENAI_API_KEY validity and credits
-- **Teams webhook fails**: Verify WEBHOOK_URL is correct and active
+### Common Issues
 
-## Security Notes
+1. **JSON parsing errors**: Usually caused by special characters in commit messages
 
-- All tokens are stored as GitHub secrets
-- Scripts use proper error handling and pipefail
-- Temporary files are cleaned up automatically
-- No sensitive data is logged
+    - Fixed with improved escaping and validation
+
+2. **Rate limiting**: GitHub API limits exceeded
+
+    - Script includes automatic rate limit handling
+
+3. **Authentication failures**: Invalid or expired tokens
+
+    - Check token permissions and expiration
+
+4. **Timeout issues**: Network or API delays
+    - Scripts include timeout protection
+
+### Debug Mode
+
+Run the debug script to check system health:
+
+```bash
+bash .github/scripts/debug-json.sh
+```
+
+### Manual Testing
+
+Trigger the workflow manually:
+
+1. Go to Actions tab in GitHub
+2. Select "Daily Development Recap"
+3. Click "Run workflow"
+
+### Logs
+
+On workflow failure, logs are automatically uploaded as artifacts for 7 days.
+
+## API Requirements
+
+### GitHub API
+
+-   Personal Access Token with `repo` and `read:org` scopes
+-   Rate limit: 5,000 requests/hour for authenticated users
+
+### OpenAI API
+
+-   API key with access to GPT-4o-mini model
+-   Rate limit: Varies by plan
+
+### MS Teams
+
+-   Incoming webhook URL
+-   No rate limits (but recommended to stay under 100 messages/minute)
+
+## Security Considerations
+
+-   All API keys are stored as GitHub secrets
+-   Scripts use minimal required permissions
+-   No sensitive data is logged
+-   Temporary files are cleaned up automatically
+
+## Performance
+
+-   Typical runtime: 2-5 minutes
+-   Handles repositories with thousands of commits
+-   Automatic pagination for large datasets
+-   Efficient deduplication of commits
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Test thoroughly
+5. Submit a pull request
 
 ## License
 
-MIT
+MIT License - see LICENSE file for details.
+
+## Support
+
+For issues and questions:
+
+1. Check the troubleshooting section
+2. Review the logs in GitHub Actions
+3. Open an issue with detailed information

@@ -7,16 +7,44 @@ set -euo pipefail
 # Set timezone to Pacific Time
 export TZ='America/Los_Angeles'
 
-# Get the date range in Pacific Time
-if [ "$(date +%u)" -eq 1 ]; then
-    # It's Monday, look at Friday
-    SINCE_DATE=$(date -d "last Friday" +%Y-%m-%d)
-    UNTIL_DATE=$(date -d "last Saturday" +%Y-%m-%d)
-else
-    # Look at yesterday
-    SINCE_DATE=$(date -d "yesterday" +%Y-%m-%d)
-    UNTIL_DATE=$(date +%Y-%m-%d)
-fi
+# Get the date range in Pacific Time (cross-platform compatible)
+get_date_range() {
+    local day_of_week=$(date +%u)
+    
+    if [ "$day_of_week" -eq 1 ]; then
+        # It's Monday, look at Friday
+        if command -v gdate &> /dev/null; then
+            # macOS with coreutils
+            SINCE_DATE=$(gdate -d "last Friday" +%Y-%m-%d)
+            UNTIL_DATE=$(gdate -d "last Saturday" +%Y-%m-%d)
+        elif date --version &> /dev/null; then
+            # Linux GNU date
+            SINCE_DATE=$(date -d "last Friday" +%Y-%m-%d)
+            UNTIL_DATE=$(date -d "last Saturday" +%Y-%m-%d)
+        else
+            # BSD/macOS default date
+            SINCE_DATE=$(date -v-3d +%Y-%m-%d)
+            UNTIL_DATE=$(date -v-2d +%Y-%m-%d)
+        fi
+    else
+        # Look at yesterday
+        if command -v gdate &> /dev/null; then
+            # macOS with coreutils
+            SINCE_DATE=$(gdate -d "yesterday" +%Y-%m-%d)
+            UNTIL_DATE=$(gdate +%Y-%m-%d)
+        elif date --version &> /dev/null; then
+            # Linux GNU date
+            SINCE_DATE=$(date -d "yesterday" +%Y-%m-%d)
+            UNTIL_DATE=$(date +%Y-%m-%d)
+        else
+            # BSD/macOS default date
+            SINCE_DATE=$(date -v-1d +%Y-%m-%d)
+            UNTIL_DATE=$(date +%Y-%m-%d)
+        fi
+    fi
+}
+
+get_date_range
 
 echo "Fetching commits from $SINCE_DATE to $UNTIL_DATE (Pacific Time) across ALL branches" >&2
 
@@ -25,14 +53,17 @@ COMMITS_FILE="/tmp/commits_data.json"
 echo "[]" > "$COMMITS_FILE"
 
 # Get the authenticated user
-USER=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+echo "Authenticating with GitHub API..." >&2
+USER=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
     "https://api.github.com/user" | jq -r '.login' || echo "")
 
 if [ -z "$USER" ] || [ "$USER" = "null" ]; then
     echo "Error: Failed to authenticate with GitHub. Please check TOKEN_GITHUB" >&2
+    echo "Response received: $(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" "https://api.github.com/user")" >&2
     exit 1
 fi
 
+echo "Successfully authenticated as user: $USER" >&2
 echo "Fetching commits for user: $USER from all branches" >&2
 
 # Function to safely merge JSON arrays
@@ -47,6 +78,25 @@ safe_merge_commits() {
     
     # Merge and deduplicate by SHA
     echo "$existing $new_commits" | jq -s 'add | unique_by(.sha)' 2>/dev/null || echo "$existing"
+}
+
+# Function to handle rate limiting
+handle_rate_limit() {
+    local response="$1"
+    if echo "$response" | jq -e '.message' | grep -q "API rate limit exceeded" 2>/dev/null; then
+        local reset_time=$(echo "$response" | jq -r '.headers.X-RateLimit-Reset // 0')
+        if [ "$reset_time" -gt 0 ]; then
+            local wait_time=$((reset_time - $(date +%s)))
+            if [ "$wait_time" -gt 0 ]; then
+                echo "Rate limit exceeded. Waiting $wait_time seconds..." >&2
+                sleep "$wait_time"
+                return 0
+            fi
+        fi
+        echo "Rate limit exceeded and cannot wait. Skipping..." >&2
+        return 1
+    fi
+    return 0
 }
 
 # Function to fetch commits from a repository
@@ -64,24 +114,33 @@ fetch_repo_commits() {
     local since_utc="${SINCE_DATE}T08:00:00Z"  # 00:00 PT = 08:00 UTC
     local until_utc="${UNTIL_DATE}T08:00:00Z"  # 00:00 PT = 08:00 UTC
     
+    echo "  Date range: $since_utc to $until_utc (UTC)" >&2
+    
     # Start with default branch commits
-    local all_commits=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+    echo "  Fetching commits from default branch..." >&2
+    local all_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
         "https://api.github.com/repos/$repo_name/commits?author=$USER&since=$since_utc&until=$until_utc" \
         2>/dev/null || echo "[]")
     
     # Validate default branch commits
     if ! echo "$all_commits" | jq . >/dev/null 2>&1; then
+        echo "  Warning: Invalid JSON response from default branch API" >&2
         all_commits="[]"
+    else
+        local default_count=$(echo "$all_commits" | jq '. | length' 2>/dev/null || echo "0")
+        echo "  Found $default_count commits on default branch" >&2
     fi
     
     # Get all branches
-    local branches=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+    echo "  Fetching branch list..." >&2
+    local branches=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
         "https://api.github.com/repos/$repo_name/branches?per_page=100" \
         2>/dev/null || echo "[]")
     
     # Process branches if API call succeeded
     if echo "$branches" | jq . >/dev/null 2>&1 && [ "$branches" != "[]" ]; then
         local branch_count=$(echo "$branches" | jq '. | length' 2>/dev/null || echo "0")
+        echo "  Found $branch_count branches to check" >&2
         
         if [ "$branch_count" -gt 0 ]; then
             for i in $(seq 0 $((branch_count - 1))); do
@@ -90,14 +149,19 @@ fetch_repo_commits() {
                 if [ -n "$branch_name" ] && [ "$branch_name" != "null" ]; then
                     echo "  Checking branch: $branch_name" >&2
                     
-                    local branch_commits=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+                    local branch_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
                         "https://api.github.com/repos/$repo_name/commits?sha=$branch_name&author=$USER&since=$since_utc&until=$until_utc" \
                         2>/dev/null || echo "[]")
+                    
+                    local branch_commit_count=$(echo "$branch_commits" | jq '. | length' 2>/dev/null || echo "0")
+                    echo "    Found $branch_commit_count commits on branch $branch_name" >&2
                     
                     all_commits=$(safe_merge_commits "$all_commits" "$branch_commits")
                 fi
             done
         fi
+    else
+        echo "  Warning: Could not fetch branch list or no branches found" >&2
     fi
     
     # Process each commit to get detailed information
@@ -110,16 +174,19 @@ fetch_repo_commits() {
                 
                 if [ "$commit" != "{}" ]; then
                     local sha=$(echo "$commit" | jq -r '.sha' 2>/dev/null || echo "")
-                    local message=$(echo "$commit" | jq -r '.commit.message' 2>/dev/null || echo "")
+                    local message=$(echo "$commit" | jq -r '.commit.message // ""' 2>/dev/null || echo "")
                     
-                    if [ -n "$sha" ] && [ "$sha" != "null" ]; then
+                    # Clean and escape the message to prevent JSON parsing issues
+                    message=$(echo "$message" | tr -d '\r' | sed 's/"/\\"/g' | sed 's/\\/\\\\/g')
+                    
+                    if [ -n "$sha" ] && [ "$sha" != "null" ] && [ -n "$message" ]; then
                         # Get commit details including files changed
-                        local commit_detail=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+                        local commit_detail=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
                             "https://api.github.com/repos/$repo_name/commits/$sha" \
                             2>/dev/null || echo "{}")
                         
                         if echo "$commit_detail" | jq . >/dev/null 2>&1 && [ "$commit_detail" != "{}" ]; then
-                            # Create a combined JSON object
+                            # Create a combined JSON object with proper escaping
                             local commit_data=$(jq -n \
                                 --arg repo "$repo_name" \
                                 --arg sha "$sha" \
@@ -149,7 +216,7 @@ fetch_repo_commits() {
 # Fetch all repositories the user has access to
 page=1
 while true; do
-    repos=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+    repos=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
         "https://api.github.com/user/repos?per_page=100&page=$page&type=all" \
         2>/dev/null || echo "[]")
     
@@ -177,7 +244,7 @@ while true; do
 done
 
 # Also check organizations
-orgs=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+orgs=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
     "https://api.github.com/user/orgs" \
     2>/dev/null || echo "[]")
 
@@ -188,7 +255,7 @@ if echo "$orgs" | jq . >/dev/null 2>&1 && [ "$orgs" != "[]" ] && [ -n "$orgs" ];
             
             page=1
             while true; do
-                org_repos=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+                org_repos=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
                     "https://api.github.com/orgs/$org/repos?per_page=100&page=$page" \
                     2>/dev/null || echo "[]")
                 
