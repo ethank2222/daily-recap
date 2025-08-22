@@ -1,0 +1,26 @@
+name: Daily Development Recap
+
+on:
+    schedule:
+        - cron: "0 15 * * *" # Runs at 7:00 AM Pacific Time (UTC-8) every day
+    workflow_dispatch: # Allows manual triggering for testing
+
+jobs:
+    generate-recap:
+        runs-on: ubuntu-latest
+
+        steps:
+            - name: Checkout repository
+              uses: actions/checkout@v4
+
+            - name: Set up environment
+              run: |
+                  chmod +x .github/scripts/*.sh
+
+            - name: Generate daily recap
+              env:
+                  TOKEN_GITHUB: ${{ secrets.TOKEN_GITHUB }}
+                  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+                  WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+              run: |
+                  bash .github/scripts/daily-recap.sh
