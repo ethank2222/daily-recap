@@ -55,6 +55,13 @@ else
     exit 1
 fi
 
+if [ -n "${AUTHOR_ACCOUNT:-}" ]; then
+    echo "✓ AUTHOR_ACCOUNT is set: $AUTHOR_ACCOUNT"
+else
+    echo "✗ AUTHOR_ACCOUNT is not set"
+    exit 1
+fi
+
 # Test GitHub authentication
 echo ""
 echo "Testing GitHub authentication..."
@@ -67,6 +74,21 @@ else
     echo "✗ GitHub authentication failed"
     echo "Response: $(curl -s -H "Authorization: token $TOKEN_GITHUB" "https://api.github.com/user")"
     exit 1
+fi
+
+# Test author account access
+echo ""
+echo "Testing author account access..."
+AUTHOR_RESPONSE=$(curl -s -H "Authorization: token $TOKEN_GITHUB" \
+    "https://api.github.com/users/$AUTHOR_ACCOUNT" 2>/dev/null || echo '{"error": "Failed to fetch user"}')
+
+if echo "$AUTHOR_RESPONSE" | jq -e '.error' >/dev/null 2>&1; then
+    echo "✗ Cannot access author account: $AUTHOR_ACCOUNT"
+    echo "Response: $AUTHOR_RESPONSE"
+    exit 1
+else
+    AUTHOR_NAME=$(echo "$AUTHOR_RESPONSE" | jq -r '.name // .login' 2>/dev/null || echo "$AUTHOR_ACCOUNT")
+    echo "✓ Author account accessible: $AUTHOR_NAME ($AUTHOR_ACCOUNT)"
 fi
 
 # Test OpenAI API

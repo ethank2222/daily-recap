@@ -14,10 +14,19 @@ A GitHub Actions workflow that automatically generates daily development summari
 
 ## How It Works
 
-1. **Commit Fetching**: Scans all repositories and branches for commits from the previous workday
+1. **Commit Fetching**: Scans all repositories and branches for commits from the previous workday by the specified author
 2. **Data Processing**: Extracts commit messages, files changed, and statistics
 3. **AI Summary**: Uses ChatGPT to generate a human-readable summary
 4. **Delivery**: Sends the summary to MS Teams via webhook
+
+## Author Tracking
+
+The system can track commits from any GitHub user by setting the `AUTHOR_ACCOUNT` environment variable. This allows you to:
+
+-   Track your own commits across all repositories
+-   Monitor commits from team members or contributors
+-   Generate reports for specific developers or teams
+-   Use a service account to track commits from multiple users
 
 ## Setup
 
@@ -44,6 +53,7 @@ Set up the following secrets in your GitHub repository:
 -   `TOKEN_GITHUB`: GitHub Personal Access Token with `repo` and `read:org` scopes
 -   `OPENAI_API_KEY`: OpenAI API key for ChatGPT access
 -   `WEBHOOK_URL`: MS Teams webhook URL
+-   `AUTHOR_ACCOUNT`: GitHub username whose commits you want to track
 
 ### 3. MS Teams Webhook
 
@@ -161,6 +171,7 @@ On workflow failure, logs are automatically uploaded as artifacts for 7 days.
 
 -   Personal Access Token with `repo` and `read:org` scopes
 -   Rate limit: 5,000 requests/hour for authenticated users
+-   Can search for commits by any GitHub user (not just the token owner)
 
 ### OpenAI API
 

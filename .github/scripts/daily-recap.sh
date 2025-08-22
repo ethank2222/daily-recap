@@ -42,6 +42,12 @@ if [ -z "$WEBHOOK_URL" ]; then
     exit 1
 fi
 
+if [ -z "$AUTHOR_ACCOUNT" ]; then
+    echo "Error: AUTHOR_ACCOUNT environment variable is not set"
+    echo "Please set AUTHOR_ACCOUNT to the GitHub username whose commits you want to find"
+    exit 1
+fi
+
 # Temporary files
 COMMITS_FILE="/tmp/daily_commits_$(date +%s).json"
 SUMMARY_FILE="/tmp/daily_summary_$(date +%s).json"
@@ -58,6 +64,11 @@ echo "Step 1: Fetching commits from all repositories and branches..."
 echo "-------------------------------------------------"
 echo "Starting commit fetch process..."
 echo "Output will be saved to: $COMMITS_FILE"
+
+# Add debug information about the current date and timezone
+echo "Current date/time: $(date)"
+echo "Timezone: $TZ"
+echo "Current day of week: $(date +%u)"
 
 if ! bash "$SCRIPT_DIR/fetch-commits.sh" > "$COMMITS_FILE" 2>&1; then
     echo "Warning: Issues fetching some commits, continuing with available data" >&2

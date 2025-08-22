@@ -31,6 +31,7 @@ jobs:
                   TOKEN_GITHUB: ${{ secrets.TOKEN_GITHUB }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+                  AUTHOR_ACCOUNT: ${{ secrets.AUTHOR_ACCOUNT }}
               run: |
                   echo "Testing setup..."
                   bash .github/scripts/test-setup.sh
@@ -41,6 +42,7 @@ jobs:
                   TOKEN_GITHUB: ${{ secrets.TOKEN_GITHUB }}
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+                  AUTHOR_ACCOUNT: ${{ secrets.AUTHOR_ACCOUNT }}
               run: |
                   echo "Starting daily recap generation..."
                   echo "Environment variables set."

@@ -42,6 +42,11 @@ get_date_range() {
             UNTIL_DATE=$(date +%Y-%m-%d)
         fi
     fi
+    
+    # Add debug information
+    echo "Day of week: $day_of_week" >&2
+    echo "Since date: $SINCE_DATE" >&2
+    echo "Until date: $UNTIL_DATE" >&2
 }
 
 get_date_range
@@ -52,19 +57,26 @@ echo "Fetching commits from $SINCE_DATE to $UNTIL_DATE (Pacific Time) across ALL
 COMMITS_FILE="/tmp/commits_data.json"
 echo "[]" > "$COMMITS_FILE"
 
-# Get the authenticated user
+# Get the author account to search for
+if [ -z "${AUTHOR_ACCOUNT:-}" ]; then
+    echo "Error: AUTHOR_ACCOUNT environment variable is not set" >&2
+    echo "Please set AUTHOR_ACCOUNT to the GitHub username whose commits you want to find" >&2
+    exit 1
+fi
+
+# Verify the GitHub token works
 echo "Authenticating with GitHub API..." >&2
-USER=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+AUTH_USER=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
     "https://api.github.com/user" | jq -r '.login' || echo "")
 
-if [ -z "$USER" ] || [ "$USER" = "null" ]; then
+if [ -z "$AUTH_USER" ] || [ "$AUTH_USER" = "null" ]; then
     echo "Error: Failed to authenticate with GitHub. Please check TOKEN_GITHUB" >&2
     echo "Response received: $(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" "https://api.github.com/user")" >&2
     exit 1
 fi
 
-echo "Successfully authenticated as user: $USER" >&2
-echo "Fetching commits for user: $USER from all branches" >&2
+echo "Successfully authenticated as user: $AUTH_USER" >&2
+echo "Fetching commits for author: $AUTHOR_ACCOUNT from all branches" >&2
 
 # Function to safely merge JSON arrays
 safe_merge_commits() {
@@ -110,17 +122,50 @@ fetch_repo_commits() {
     
     echo "Checking repository: $repo_name" >&2
     
-    # Convert PT dates to UTC for API (Pacific Time is UTC-8)
-    local since_utc="${SINCE_DATE}T08:00:00Z"  # 00:00 PT = 08:00 UTC
-    local until_utc="${UNTIL_DATE}T08:00:00Z"  # 00:00 PT = 08:00 UTC
+    # Convert PT dates to UTC for API - use a wider range to ensure we catch all commits
+    # Pacific Time is UTC-8 in winter, UTC-7 in summer
+    # Use a conservative approach that covers the entire day in PT
+    local since_utc="${SINCE_DATE}T07:00:00Z"  # Start early to catch all commits
+    local until_utc="${UNTIL_DATE}T08:59:59Z"  # End late to catch all commits
     
     echo "  Date range: $since_utc to $until_utc (UTC)" >&2
+    echo "  Local date range: $SINCE_DATE 00:00 to $UNTIL_DATE 23:59 (Pacific Time)" >&2
     
     # Start with default branch commits
     echo "  Fetching commits from default branch..." >&2
     local all_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
-        "https://api.github.com/repos/$repo_name/commits?author=$USER&since=$since_utc&until=$until_utc" \
+        "https://api.github.com/repos/$repo_name/commits?author=$AUTHOR_ACCOUNT&since=$since_utc&until=$until_utc" \
         2>/dev/null || echo "[]")
+    
+    # If no commits found with author filter, try without author filter to see if there are any commits
+    local commit_count=$(echo "$all_commits" | jq '. | length' 2>/dev/null || echo "0")
+    if [ "$commit_count" -eq 0 ]; then
+        echo "  No commits found with author filter, checking for any commits in date range..." >&2
+        local any_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+            "https://api.github.com/repos/$repo_name/commits?since=$since_utc&until=$until_utc&per_page=5" \
+            2>/dev/null || echo "[]")
+        local any_count=$(echo "$any_commits" | jq '. | length' 2>/dev/null || echo "0")
+        if [ "$any_count" -gt 0 ]; then
+            echo "  Found $any_count commits in date range, but none by author $AUTHOR_ACCOUNT" >&2
+        else
+            echo "  No commits found in date range at all" >&2
+            
+            # Try a broader search - look back 3 days to see if there are any recent commits
+            echo "  Trying broader search (last 3 days)..." >&2
+            local broader_since=$(date -d "3 days ago" +%Y-%m-%d 2>/dev/null || date -v-3d +%Y-%m-%d 2>/dev/null || echo "")
+            if [ -n "$broader_since" ]; then
+                local broader_since_utc="${broader_since}T07:00:00Z"
+                local broader_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+                    "https://api.github.com/repos/$repo_name/commits?author=$AUTHOR_ACCOUNT&since=$broader_since_utc&per_page=10" \
+                    2>/dev/null || echo "[]")
+                local broader_count=$(echo "$broader_commits" | jq '. | length' 2>/dev/null || echo "0")
+                if [ "$broader_count" -gt 0 ]; then
+                    echo "  Found $broader_count commits by author in last 3 days" >&2
+                    echo "  Most recent commit: $(echo "$broader_commits" | jq -r '.[0].commit.message' 2>/dev/null | head -c 50)" >&2
+                fi
+            fi
+        fi
+    fi
     
     # Validate default branch commits
     if ! echo "$all_commits" | jq . >/dev/null 2>&1; then
@@ -150,7 +195,7 @@ fetch_repo_commits() {
                     echo "  Checking branch: $branch_name" >&2
                     
                     local branch_commits=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
-                        "https://api.github.com/repos/$repo_name/commits?sha=$branch_name&author=$USER&since=$since_utc&until=$until_utc" \
+                        "https://api.github.com/repos/$repo_name/commits?sha=$branch_name&author=$AUTHOR_ACCOUNT&since=$since_utc&until=$until_utc" \
                         2>/dev/null || echo "[]")
                     
                     local branch_commit_count=$(echo "$branch_commits" | jq '. | length' 2>/dev/null || echo "0")
