@@ -14,12 +14,12 @@ jobs:
             - name: Checkout repository
               uses: actions/checkout@v4
 
-                        - name: Set up environment
+            - name: Set up environment
               run: |
                   echo "Setting up environment..."
                   chmod +x .github/scripts/*.sh
                   echo "Scripts made executable"
-                  
+
                   # Verify required tools
                   echo "Checking required tools..."
                   jq --version
