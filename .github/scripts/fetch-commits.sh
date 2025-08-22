@@ -43,13 +43,22 @@ get_date_range() {
         fi
     fi
     
+    # Validate dates
+    if [ -z "$SINCE_DATE" ] || [ -z "$UNTIL_DATE" ]; then
+        echo "Error: Failed to calculate date range" >&2
+        return 1
+    fi
+    
     # Add debug information
     echo "Day of week: $day_of_week" >&2
     echo "Since date: $SINCE_DATE" >&2
     echo "Until date: $UNTIL_DATE" >&2
 }
 
-get_date_range
+if ! get_date_range; then
+    echo "Error: Date range calculation failed" >&2
+    exit 1
+fi
 
 echo "Fetching commits from $SINCE_DATE to $UNTIL_DATE (Pacific Time) across ALL branches" >&2
 
@@ -77,6 +86,20 @@ fi
 
 echo "Successfully authenticated as user: $AUTH_USER" >&2
 echo "Fetching commits for author: $AUTHOR_ACCOUNT from all branches" >&2
+
+# Test basic API access
+echo "Testing basic API access..." >&2
+TEST_REPOS=$(curl -s --max-time 30 -H "Authorization: token $TOKEN_GITHUB" \
+    "https://api.github.com/user/repos?per_page=1" \
+    2>/dev/null || echo "[]")
+
+if ! echo "$TEST_REPOS" | jq . >/dev/null 2>&1; then
+    echo "Error: Cannot access GitHub API" >&2
+    exit 1
+fi
+
+REPO_COUNT=$(echo "$TEST_REPOS" | jq '. | length' 2>/dev/null || echo "0")
+echo "Found $REPO_COUNT test repositories" >&2
 
 # Function to safely merge JSON arrays
 safe_merge_commits() {
@@ -329,8 +352,17 @@ if echo "$orgs" | jq . >/dev/null 2>&1 && [ "$orgs" != "[]" ] && [ -n "$orgs" ];
 fi
 
 # Output the commits data
+echo "Final commit count: $(jq '. | length' "$COMMITS_FILE" 2>/dev/null || echo "0")" >&2
+
 if [ -f "$COMMITS_FILE" ]; then
-    cat "$COMMITS_FILE"
+    # Ensure we output valid JSON
+    if jq . "$COMMITS_FILE" >/dev/null 2>&1; then
+        cat "$COMMITS_FILE"
+    else
+        echo "Warning: Invalid JSON in commits file, outputting empty array" >&2
+        echo "[]"
+    fi
 else
+    echo "No commits file found, outputting empty array" >&2
     echo "[]" # Return empty array if no commits file
 fi

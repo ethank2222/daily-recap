@@ -37,6 +37,15 @@ jobs:
                   bash .github/scripts/test-setup.sh
                   echo "Setup validation completed"
 
+            - name: Debug commit fetching
+              env:
+                  TOKEN_GITHUB: ${{ secrets.TOKEN_GITHUB }}
+                  AUTHOR_ACCOUNT: ${{ secrets.AUTHOR_ACCOUNT }}
+              run: |
+                  echo "Debugging commit fetching..."
+                  bash .github/scripts/debug-commits.sh
+                  echo "Debug completed"
+
             - name: Generate daily recap
               env:
                   TOKEN_GITHUB: ${{ secrets.TOKEN_GITHUB }}
